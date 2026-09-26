@@ -53,6 +53,7 @@ def test_parse_msgstore(tmp_path: Path) -> None:
     assert group.name == "Family"
     assert [m.sender_jid for m in group.messages] == [ALICE, BOB_PN, None]
     assert {p.jid for p in group.participants} >= {ALICE, BOB_PN}
+    assert [(m.key_id, m.kind.value) for m in chats[BOB_PN].messages] == [("K114", "text"), ("K117", "unknown")]
 
 
 def import_fixture(tmp_path: Path) -> tuple[Path, chatstorage.Report]:
@@ -70,7 +71,7 @@ def test_writer(tmp_path: Path) -> None:
     database, report = import_fixture(tmp_path)
     assert chatstorage.verify(database) == []
     assert report.messages_skipped == 1
-    assert report.messages_written == 11
+    assert report.messages_written == 12
     assert report.sessions_reused == 2
     assert report.sessions_created == 1
     assert report.media_linked == 4
@@ -170,7 +171,7 @@ def test_build_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     database.write_bytes(reference.get_entry_by_domain_and_path(WA_DOMAIN, CHATSTORAGE).read_bytes())
     assert chatstorage.verify(database) == []
     conn = sqlite3.connect(database)
-    assert conn.execute("SELECT COUNT(*) FROM ZWAMESSAGE").fetchone()[0] == 12
+    assert conn.execute("SELECT COUNT(*) FROM ZWAMESSAGE").fetchone()[0] == 13
     path = conn.execute("SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE ZMEDIALOCALPATH IS NOT NULL").fetchone()[0]
     conn.close()
     assert reference.get_entry_by_domain_and_path(WA_DOMAIN, "Message/" + path).read_bytes()

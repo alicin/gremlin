@@ -67,6 +67,10 @@ def make_msgstore(path: Path) -> None:
         (112, 11, 1, "K112", None, t0 + 12000, 3, None),
         (113, 12, 0, "K113", 2, t0 + 13000, 1, None),
         (114, 13, 0, "K114", 3, t0 + 14000, 0, "hi, bob here"),
+        (115, 13, 1, "K115", None, t0 + 15000, 90, None),
+        (116, 13, 0, "K116", 3, t0 + 16000, 99, None),
+        (117, 13, 1, "K117", None, t0 + 17000, 49, "sent with a newer message type"),
+        (118, 13, 0, "K118", 3, t0 + 18000, 0, None),
     ]
     conn.executemany("INSERT INTO message VALUES (?,?,?,?,?,0,?,?,?,0)", rows)
     conn.executemany("INSERT INTO message_media VALUES (?,?,?,?,?,?,?,?,?)", [

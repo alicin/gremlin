@@ -243,7 +243,7 @@ class Writer:
         conv = self.conv
         pk = self.insert("ZWACHATSESSION", "WAChatSession", {
             "ZCONTACTJID": chat.jid if chat.is_group else (chat.lid or chat.jid),
-            "ZCONTACTIDENTIFIER": None if chat.is_group else chat.jid,
+            "ZCONTACTIDENTIFIER": None if chat.is_group or chat.jid.endswith("@lid") else chat.jid,
             "ZPARTNERNAME": chat.name or chat.phone or chat.jid.split("@")[0],
             "ZSESSIONTYPE": GROUP if chat.is_group else INDIVIDUAL,
             "ZMESSAGECOUNTER": 0,

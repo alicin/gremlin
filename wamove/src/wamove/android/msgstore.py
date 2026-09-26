@@ -23,10 +23,10 @@ TYPES = {
     16: Kind.LOCATION,
     20: Kind.STICKER,
     24: Kind.SYSTEM,
+    90: Kind.SYSTEM,
 }
 SKIPPED_KINDS = (Kind.SYSTEM, Kind.REVOKED)
-SKIPPED_SUFFIXES = ("@broadcast", "@newsletter")
-PLACEHOLDER = "[This kind of message could not be moved from Android]"
+SKIPPED_SUFFIXES = ("@broadcast", "@newsletter", "@bot")
 
 
 class MsgstoreError(Exception):
@@ -183,8 +183,8 @@ def parse(path: Path, contacts: dict[str, str] | None = None) -> Archive:
         if kind is Kind.LOCATION and row["latitude"] is not None:
             location = Location(float(row["latitude"]), float(row["longitude"] or 0), row["place_name"])
         text = row["text"]
-        if kind is Kind.UNKNOWN and not text:
-            text = PLACEHOLDER
+        if kind in (Kind.TEXT, Kind.UNKNOWN) and not text:
+            continue
         sender = phone(row["sender"]) if row["sender"] and not row["from_me"] else None
         chat.messages.append(Message(
             key_id=row["key_id"],
