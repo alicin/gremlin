@@ -43,13 +43,14 @@ def make_msgstore(path: Path) -> None:
         CREATE TABLE jid_map (lid_row_id INTEGER PRIMARY KEY, jid_row_id INTEGER);
         """
     )
-    for row_id, raw in [(1, ME), (2, ALICE), (3, BOB_LID), (4, BOB_PN), (5, GROUP), (6, "status@broadcast")]:
-        user, server = raw.split("@")
+    for row_id, raw in [(1, ME), (2, ALICE), (3, BOB_LID), (4, BOB_PN), (5, GROUP), (6, "status@broadcast"),
+                        (7, "lid_me")]:
+        user, server = raw.split("@") if "@" in raw else (raw, raw)
         conn.execute("INSERT INTO jid VALUES (?,?,?,?)", (row_id, user, server, raw))
     conn.execute("INSERT INTO jid_map VALUES (3, 4)")
     conn.executemany("INSERT INTO chat VALUES (?,?,0,?,?,0)", [
         (10, 2, None, None), (11, 5, "Family", 1_700_000_000_000), (12, 6, None, None), (13, 3, None, None)])
-    conn.executemany("INSERT INTO group_participant_user VALUES (?,5,?,?)", [(1, 1, 1), (2, 2, 0), (3, 3, 0)])
+    conn.executemany("INSERT INTO group_participant_user VALUES (?,5,?,?)", [(1, 1, 1), (2, 2, 0), (3, 3, 0), (4, 7, 0)])
     t0 = 1_726_000_000_000
     rows = [
         (100, 10, 0, "K100", 2, t0 + 1000, 0, "hi from alice"),

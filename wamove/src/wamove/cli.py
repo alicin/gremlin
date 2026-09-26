@@ -178,14 +178,16 @@ def build(work: Work, args: argparse.Namespace) -> None:
             target.read(name, work.build / name)
         writer = chatstorage.Writer(database, archive.lids)
         media = None if args.no_media or not work.media.is_dir() else work.media
-        report = writer.import_archive(archive, media)
+        (work.build / "thumbs").mkdir()
+        report = writer.import_archive(archive, media, work.build / "thumbs")
         writer.close()
         problems = chatstorage.verify(database)
         if problems:
             raise Failure("the converted database failed its checks:\n  " + "\n  ".join(problems))
         print(f"  {report.sessions_created} chats created, {report.sessions_reused} merged into existing ones")
         print(f"  {report.messages_written} messages added, {report.messages_skipped} were already there")
-        print(f"  {report.media_linked} media files found, {report.media_missing} missing on the Android phone")
+        print(f"  {report.media_linked} media files found, {report.media_missing} missing on the Android phone, "
+              f"{report.thumbnails} thumbnails made")
         target.put(CHATSTORAGE, database)
         empty = work.build / "empty"
         empty.write_bytes(b"")

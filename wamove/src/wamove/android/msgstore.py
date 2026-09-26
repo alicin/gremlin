@@ -129,7 +129,7 @@ def parse(path: Path, contacts: dict[str, str] | None = None) -> Archive:
         )
         for row in members:
             chat = by_jid.get(row["grp"])
-            if chat and row["usr"]:
+            if chat and "@" in (row["usr"] or ""):
                 user = phone(row["usr"])
                 chat.participants.append(Participant(jid=user, name=name_of(user), is_admin=bool(row["rank"])))
 
@@ -185,7 +185,7 @@ def parse(path: Path, contacts: dict[str, str] | None = None) -> Archive:
         text = row["text"]
         if kind in (Kind.TEXT, Kind.UNKNOWN) and not text:
             continue
-        sender = phone(row["sender"]) if row["sender"] and not row["from_me"] else None
+        sender = phone(row["sender"]) if "@" in (row["sender"] or "") and not row["from_me"] else None
         chat.messages.append(Message(
             key_id=row["key_id"],
             from_me=bool(row["from_me"]),

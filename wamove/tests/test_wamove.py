@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import sqlite3
+import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -10,11 +13,11 @@ import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pyiosbackup import Backup as ReferenceBackup
 
-from fixtures import (ALICE, BOB_LID, BOB_PN, GROUP, PASSWORD, UDID, make_backup, make_chatstorage, make_media,
+from fixtures import (ALICE, BOB_LID, BOB_PN, GROUP, ME, PASSWORD, UDID, make_backup, make_chatstorage, make_media,
                       make_msgstore)
 from wamove.android import crypt15, msgstore
 from wamove.cli import main
-from wamove.ios import chatstorage
+from wamove.ios import chatstorage, thumbs
 from wamove.ios.backup import CHATSTORAGE, DIRECTORY, WA_DOMAIN, Backup, BackupError, file_id, mbfile
 
 KEY = "0123456789abcdef" * 4
@@ -52,7 +55,7 @@ def test_parse_msgstore(tmp_path: Path) -> None:
     group = chats[GROUP]
     assert group.name == "Family"
     assert [m.sender_jid for m in group.messages] == [ALICE, BOB_PN, None]
-    assert {p.jid for p in group.participants} >= {ALICE, BOB_PN}
+    assert {p.jid for p in group.participants} == {ME, ALICE, BOB_PN}
     assert [(m.key_id, m.kind.value) for m in chats[BOB_PN].messages] == [("K114", "text"), ("K117", "unknown")]
 
 
@@ -80,8 +83,16 @@ def test_writer(tmp_path: Path) -> None:
     paths = [r[0] for r in conn.execute("SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE ZMEDIALOCALPATH IS NOT NULL")]
     assert paths and all(p.startswith(f"Media/{ALICE}/") for p in paths)
     assert all(f.relative_path.startswith("Message/Media/") for f in report.media_files)
-    dates = [r[0] for r in conn.execute("SELECT ZMESSAGEDATE FROM ZWAMESSAGE ORDER BY ZSORT")]
-    assert dates == sorted(dates)
+    for (session,) in conn.execute("SELECT DISTINCT ZCHATSESSION FROM ZWAMESSAGE").fetchall():
+        rows = conn.execute("SELECT ZSORT, ZMESSAGEDATE FROM ZWAMESSAGE WHERE ZCHATSESSION=? ORDER BY ZSORT",
+                            (session,)).fetchall()
+        assert [r[0] for r in rows] == list(range(1, len(rows) + 1))
+        assert [r[1] for r in rows] == sorted(r[1] for r in rows)
+    counters = dict(conn.execute("SELECT Z_PK, ZMESSAGECOUNTER FROM ZWACHATSESSION"))
+    assert counters == {1: 8, 2: 3, 3: 2}
+    hashed = conn.execute("SELECT i.ZVCARDNAME FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM i ON i.Z_PK = m.ZMEDIAITEM "
+                          "WHERE m.ZSTANZAID='K102'").fetchone()[0]
+    assert hashed == base64.b64encode(hashlib.sha256(b"\xff\xd8jpegdata!!").digest()).decode()
     bob = conn.execute("SELECT ZGROUPMEMBER FROM ZWAMESSAGE WHERE ZSTANZAID='K111'").fetchone()[0]
     assert bob == 1
     assert conn.execute("SELECT COUNT(*) FROM ZWAGROUPMEMBER WHERE ZMEMBERJID LIKE '%61400000003%'").fetchone()[0] == 0
@@ -97,6 +108,39 @@ def test_writer(tmp_path: Path) -> None:
     report = again.import_archive(msgstore.parse(tmp_path / "msgstore.db"), tmp_path / "Media")
     again.close()
     assert report.messages_written == 0
+
+
+def write_png(path: Path, width: int, height: int) -> None:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = b"".join(b"\x00" + b"\xcc\x33\x66" * width for _ in range(height))
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="thumbnails use sips")
+def test_image_thumbnail(tmp_path: Path) -> None:
+    make_msgstore(tmp_path / "msgstore.db")
+    make_media(tmp_path / "Media")
+    write_png(tmp_path / "Media" / "WhatsApp Images" / "IMG-001.jpg", 300, 200)
+    make_chatstorage(tmp_path / CHATSTORAGE)
+    (tmp_path / "thumbs").mkdir()
+    archive = msgstore.parse(tmp_path / "msgstore.db")
+    writer = chatstorage.Writer(tmp_path / CHATSTORAGE, archive.lids)
+    report = writer.import_archive(archive, tmp_path / "Media", tmp_path / "thumbs")
+    writer.close()
+    assert report.thumbnails == 1
+    thumb = next(f for f in report.media_files if f.relative_path.endswith(".thumb"))
+    assert Path(thumb.source).read_bytes()[:3] == b"\xff\xd8\xff"
+    assert thumbs.dimensions(thumb.source) == (72, 72)
+    conn = sqlite3.connect(tmp_path / CHATSTORAGE)
+    item = conn.execute("SELECT i.ZMEDIALOCALPATH, i.ZXMPPTHUMBPATH, i.ZLATITUDE, i.ZLONGITUDE FROM ZWAMESSAGE m "
+                        "JOIN ZWAMEDIAITEM i ON i.Z_PK = m.ZMEDIAITEM WHERE m.ZSTANZAID='K102'").fetchone()
+    conn.close()
+    assert item[1] == item[0].rsplit(".", 1)[0] + ".thumb"
+    assert "Message/" + item[1] == thumb.relative_path
+    assert (item[2], item[3]) == (480, 640)
 
 
 @pytest.mark.parametrize("password", [None, PASSWORD])

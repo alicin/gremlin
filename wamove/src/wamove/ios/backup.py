@@ -197,6 +197,16 @@ class Backup:
             return self._template(flags, domain)
         raise BackupError(f"the backup has no {'file' if flags == FILE else 'folder'} in {domain} to model on")
 
+    def _folder_template(self, folder: str, domain: str) -> bytes:
+        depth = folder.count("/")
+        rows = self.conn.execute(
+            "SELECT relativePath, file FROM Files WHERE domain=? AND flags=? AND file IS NOT NULL "
+            "AND relativePath LIKE 'Message/Media/%'", (domain, DIRECTORY))
+        for path, blob in rows:
+            if path.count("/") == depth:
+                return blob
+        return self._template(DIRECTORY, domain, "Message/Media/")
+
     def _inode(self) -> int:
         self.next_inode += 1
         return self.next_inode - 1
@@ -207,7 +217,7 @@ class Backup:
             folder = "/".join(parts[:depth])
             if self.get(folder, domain):
                 continue
-            blob = clone_mbfile(self._template(DIRECTORY, domain, "Message/Media/"), relative_path=folder, size=0,
+            blob = clone_mbfile(self._folder_template(folder, domain), relative_path=folder, size=0,
                                 inode=self._inode(), mtime=int(time.time()), digest=None, key=None)
             self.conn.execute("INSERT INTO Files (fileID, domain, relativePath, flags, file) VALUES (?,?,?,?,?)",
                               (file_id(domain, folder), domain, folder, DIRECTORY, blob))

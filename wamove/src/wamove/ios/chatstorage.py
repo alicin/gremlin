@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import datetime
 import functools
+import hashlib
 import os
 import re
 import sqlite3
@@ -11,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..model import MEDIA_KINDS, Archive, Chat, Kind, Message
+from . import thumbs
 
 COCOA_EPOCH = 978307200
 IOS_TYPE = {
@@ -31,6 +33,8 @@ IOS_TYPE = {
 INDIVIDUAL = 0
 GROUP = 1
 MEDIA_PREFIX = "Message/"
+SYSTEM_TYPES = (6, 10)
+VISUAL_KINDS = frozenset({Kind.IMAGE, Kind.VIDEO, Kind.GIF, Kind.STICKER})
 
 
 class ChatStorageError(Exception):
@@ -51,11 +55,20 @@ class Report:
     messages_skipped: int = 0
     media_linked: int = 0
     media_missing: int = 0
+    thumbnails: int = 0
     media_files: list[MediaFile] = field(default_factory=list)
 
 
 def cocoa(ms: int) -> float:
     return ms / 1000 - COCOA_EPOCH
+
+
+def _sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return base64.b64encode(digest.digest()).decode()
 
 
 def _is_blob(value: object) -> bool:
@@ -108,6 +121,7 @@ class Writer:
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self.lids = lids or {}
+        self.thumbnails: Path | None = None
         self.columns = {
             name: [r[1] for r in self.conn.execute(f'PRAGMA table_info("{name}")')]
             for (name,) in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -150,7 +164,16 @@ class Writer:
             "sess_spot_group": self._mode("SELECT ZSPOTLIGHTSTATUS FROM ZWACHATSESSION WHERE ZSESSIONTYPE=1", 1),
             "media_origin": self._mode("SELECT ZMEDIAORIGIN FROM ZWAMEDIAITEM WHERE ZMEDIALOCALPATH IS NOT NULL", 0),
             "media_cloud": self._mode("SELECT ZCLOUDSTATUS FROM ZWAMEDIAITEM WHERE ZMEDIALOCALPATH IS NOT NULL", 0),
+            "event_in": self._mode("SELECT ZGROUPEVENTTYPE FROM ZWAMESSAGE WHERE ZISFROMME=0 AND ZMESSAGETYPE NOT IN "
+                                   f"{SYSTEM_TYPES}", 0),
+            "event_out": self._mode("SELECT ZGROUPEVENTTYPE FROM ZWAMESSAGE WHERE ZISFROMME=1 AND ZMESSAGETYPE NOT IN "
+                                    f"{SYSTEM_TYPES}", 0),
         }
+        conv["flags_by_type"] = {}
+        for from_me, kind, flags, _ in self.conn.execute(
+                "SELECT ZISFROMME, ZMESSAGETYPE, ZFLAGS, COUNT(*) FROM ZWAMESSAGE WHERE ZFLAGS IS NOT NULL "
+                "GROUP BY 1, 2, 3 ORDER BY 4"):
+            conv["flags_by_type"][f"{from_me}:{kind}"] = flags
         conv["pushname_is_blob"] = _is_blob(self._sample(
             "SELECT ZPUSHNAME FROM ZWAMESSAGE WHERE ZPUSHNAME IS NOT NULL AND ZPUSHNAME<>''"))
         conv["lasttext_is_blob"] = _is_blob(self._sample(
@@ -216,12 +239,17 @@ class Writer:
             f"SELECT * FROM ZWACHATSESSION WHERE ZCONTACTJID IN ({marks}) OR ZCONTACTIDENTIFIER IN ({marks}) "
             "ORDER BY ZSESSIONTYPE LIMIT 1", keys + keys).fetchone()
 
-    def import_archive(self, archive: Archive, media_root: Path | None) -> Report:
+    def import_archive(self, archive: Archive, media_root: Path | None, thumbnails: Path | None = None) -> Report:
         report = Report()
+        self.thumbnails = thumbnails
+        touched: set[int] = set()
         for chat in archive.chats:
-            self._import_chat(chat, archive, report, str(media_root) if media_root else None)
-        if report.messages_written:
-            rows = self.conn.execute("SELECT Z_PK FROM ZWAMESSAGE ORDER BY ZMESSAGEDATE, Z_PK").fetchall()
+            session = self._import_chat(chat, archive, report, str(media_root) if media_root else None)
+            if session is not None:
+                touched.add(session)
+        for session in touched:
+            rows = self.conn.execute(
+                "SELECT Z_PK FROM ZWAMESSAGE WHERE ZCHATSESSION=? ORDER BY ZMESSAGEDATE, Z_PK", (session,)).fetchall()
             self.conn.executemany("UPDATE ZWAMESSAGE SET ZSORT=? WHERE Z_PK=?",
                                   [(i, r[0]) for i, r in enumerate(rows, 1)])
         for name, entity in self.entities.items():
@@ -295,7 +323,7 @@ class Writer:
         members[stored] = members[jid] = pk
         return pk
 
-    def _import_chat(self, chat: Chat, archive: Archive, report: Report, media_root: str | None) -> None:
+    def _import_chat(self, chat: Chat, archive: Archive, report: Report, media_root: str | None) -> int | None:
         session, existing = self._session(chat, report)
         media_dir = chat.jid if chat.is_group else (chat.lid or chat.jid)
         members = self._members(session) if chat.is_group else {}
@@ -305,6 +333,7 @@ class Writer:
         seen = {r[0] for r in self.conn.execute(
             "SELECT ZSTANZAID FROM ZWAMESSAGE WHERE ZCHATSESSION=? AND ZSTANZAID IS NOT NULL", (session,))}
         last_pk = last_date = last_text = None
+        written = 0
         for message in chat.messages:
             if message.key_id in seen:
                 report.messages_skipped += 1
@@ -317,17 +346,18 @@ class Writer:
             last_pk = self._message(chat, session, message, member, archive, report, media_root, media_dir)
             last_date = cocoa(message.timestamp_ms)
             last_text = message.text if message.kind is Kind.TEXT else last_text
+            written += 1
             report.messages_written += 1
         if last_pk is None:
-            return
-        total = self.conn.execute("SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION=?", (session,)).fetchone()[0]
-        values: dict = {"ZMESSAGECOUNTER": total}
+            return None
+        values: dict = {"ZMESSAGECOUNTER": ((existing["ZMESSAGECOUNTER"] or 0) if existing else 0) + written}
         previous = existing["ZLASTMESSAGEDATE"] if existing else None
         if previous is None or last_date >= previous:
             values.update({"ZLASTMESSAGE": last_pk, "ZLASTMESSAGEDATE": last_date})
             if not self.conv["lasttext_is_blob"]:
                 values["ZLASTMESSAGETEXT"] = last_text
         self.update("ZWACHATSESSION", session, values)
+        return session
 
     def _message(self, chat: Chat, session: int, message: Message, member: int | None, archive: Archive,
                  report: Report, media_root: str | None, media_dir: str) -> int:
@@ -343,6 +373,7 @@ class Writer:
         if not message.from_me and message.sender_jid and not conv["pushname_is_blob"]:
             push_name = archive.names.get(message.sender_jid)
         peer = chat.lid if conv["from_lid"] and chat.lid else chat.jid
+        fallback = conv["msg_flags_out"] if message.from_me else conv["msg_flags_in"]
         pk = self.insert("ZWAMESSAGE", "WAMessage", {
             "ZCHATSESSION": session,
             "ZLASTSESSION": session,
@@ -351,7 +382,7 @@ class Writer:
             "ZMESSAGESTATUS": conv["msg_status_out"] if message.from_me else conv["msg_status_in"],
             "ZMESSAGEERRORSTATUS": 0,
             "ZSTARRED": int(message.starred),
-            "ZFLAGS": conv["msg_flags_out"] if message.from_me else conv["msg_flags_in"],
+            "ZFLAGS": conv["flags_by_type"].get(f"{int(message.from_me)}:{kind_type}", fallback),
             "ZSPOTLIGHTSTATUS": conv["msg_spot"],
             "ZDOCID": 0,
             "ZCHILDMESSAGESDELIVEREDCOUNT": 0,
@@ -360,7 +391,7 @@ class Writer:
             "ZDATAITEMVERSION": conv["msg_dataver"],
             "ZFILTEREDRECIPIENTCOUNT": 0,
             "ZENCRETRYCOUNT": 0,
-            "ZGROUPEVENTTYPE": 0,
+            "ZGROUPEVENTTYPE": conv["event_out"] if message.from_me else conv["event_in"],
             "ZMESSAGEDATE": cocoa(message.timestamp_ms),
             "ZSENTDATE": cocoa(message.timestamp_ms),
             "ZFROMJID": None if message.from_me else (chat.jid if chat.is_group else peer),
@@ -399,22 +430,42 @@ class Writer:
             "ZMOVIEDURATION": int(media.duration_s or 0),
             "ZTITLE": media.file_name if message.kind is Kind.DOCUMENT else media.caption,
         })
-        if media.width and media.height:
-            values["ZASPECTRATIO"] = media.width / media.height
         if conv["mime_in_vcard"] and media.mime_type:
             values["ZVCARDSTRING"] = media.mime_type
+        size = (media.width, media.height) if media.width and media.height else None
         local = _locate(media.android_path, media_root) if media_root else None
         if local:
-            name = uuid.uuid4().hex.upper()
-            extension = os.path.splitext(local)[1].lower()
-            path = f"Media/{media_dir}/{name[0]}/{name[1]}/{name}{extension}"
+            name = str(uuid.uuid4())
+            stem = f"Media/{media_dir}/{name[0]}/{name[1]}/{name}"
+            path = stem + os.path.splitext(local)[1].lower()
             values["ZMEDIALOCALPATH"] = path
             values["ZFILESIZE"] = os.path.getsize(local)
+            values["ZVCARDNAME"] = _sha256(local)
             report.media_files.append(MediaFile(source=local, relative_path=MEDIA_PREFIX + path))
             report.media_linked += 1
+            thumbnail = self._thumbnail(message.kind, local, name)
+            if thumbnail:
+                made, measured = thumbnail
+                size = size or measured
+                values["ZXMPPTHUMBPATH"] = stem + ".thumb"
+                report.media_files.append(MediaFile(source=str(made), relative_path=MEDIA_PREFIX + stem + ".thumb"))
+                report.thumbnails += 1
         else:
             report.media_missing += 1
+        if size and message.kind in VISUAL_KINDS:
+            values["ZLATITUDE"], values["ZLONGITUDE"] = size[1], size[0]
         return self.insert("ZWAMEDIAITEM", "WAMediaItem", values)
+
+    def _thumbnail(self, kind: Kind, local: str, name: str) -> tuple[Path, tuple[int, int] | None] | None:
+        if self.thumbnails is None:
+            return None
+        target = self.thumbnails / f"{name}.thumb"
+        if kind is Kind.IMAGE:
+            measured = thumbs.image(local, target)
+            return (target, measured) if measured else None
+        if kind in (Kind.VIDEO, Kind.GIF) and thumbs.video(local, target):
+            return target, None
+        return None
 
 
 def verify(path: Path) -> list[str]:
