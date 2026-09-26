@@ -242,9 +242,10 @@ def restore(work: Work, args: argparse.Namespace, source: Path) -> None:
         print("Could not tell whether Find My is on. If the restore fails, turn it off and try again.")
     password = backup_password(source / udid)
     print("Restoring WhatsApp's data to the iPhone. Keep it plugged in; it restarts when done.")
-    print("If it opens the setup screens afterwards, finish them: the rest of the phone is unchanged.")
+    print("Afterwards it goes through its setup screens. The home screen layout may be reset and some apps,")
+    print("WhatsApp included, may need downloading again; their data stays.")
     device.restore(source, udid, password, args.udid)
-    print("Done. Open WhatsApp once the iPhone has restarted, then turn Find My back on.")
+    print("Done. Reinstall WhatsApp if its icon is faded, open it, then turn Find My back on.")
 
 
 def main(argv: list[str] | None = None) -> int:

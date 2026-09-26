@@ -8,10 +8,12 @@ WhatsApp's own Android → iPhone transfer only works while setting up a new or 
 2. decrypts the backup with its 64-digit key,
 3. backs up the iPhone and keeps a copy with only WhatsApp's data,
 4. adds the Android chats and media to that copy, following the conventions of the rows WhatsApp itself wrote on the iPhone,
-5. restores only WhatsApp's data to the iPhone. The rest of the phone is left as it is.
+5. restores only WhatsApp's data to the iPhone.
 
 > [!WARNING]
 > This uses undocumented formats and is not supported by WhatsApp or Apple. Keep the Android phone and its backup until you are happy with the result. If something goes wrong, `wamove rollback` puts back WhatsApp's data as it was before, and the full iPhone backup from step 3 stays on your Mac.
+>
+> The restore makes the iPhone go through its setup screens. Afterwards the home screen layout may be reset and some apps, WhatsApp included, may show faded icons until they are downloaded again. Their data stays.
 
 ## Requirements
 
@@ -42,8 +44,9 @@ On the **iPhone**:
 
 1. Install WhatsApp and register it with the same number. This signs WhatsApp out on the Android phone, which is expected. Skip restoring from iCloud.
 2. Send and receive a message and a photo, so the database contains rows to learn from.
-3. Turn on Airplane mode and turn off Wi-Fi, so no new messages arrive until the restore is done. They wait on WhatsApp's servers and arrive afterwards.
-4. Turn off Find My (Settings → your name → Find My). Restores are refused while it is on.
+3. Open WhatsApp once more, so any message it received in the background is saved to its database. Messages that only exist as notifications are lost by the restore.
+4. Turn on Airplane mode and turn off Wi-Fi, so no new messages arrive until the restore is done. They wait on WhatsApp's servers and arrive afterwards.
+5. Turn off Find My (Settings → your name → Find My). Restores are refused while it is on. Turning it off may need Airplane mode off for a moment: open WhatsApp again before switching Airplane mode back on.
 
 ```sh
 wamove backup     # full iPhone backup, then a WhatsApp-only copy; asks for the backup password if backups are encrypted
@@ -52,7 +55,7 @@ wamove build      # adds the Android chats to the WhatsApp-only copy
 wamove restore    # the iPhone restarts when done
 ```
 
-After the restart, finish the setup screens if they appear, open WhatsApp, then turn Airplane mode off and Find My back on.
+After the restart, finish the setup screens, reinstall WhatsApp from the App Store if its icon is faded, open it, then turn Airplane mode off and Find My back on.
 
 If the result is not right, `wamove rollback` restores the untouched WhatsApp-only copy.
 
@@ -60,7 +63,11 @@ Everything wamove copies stays in `~/wamove` (`--work` to change it). It holds y
 
 ## What moves
 
-Text messages, photos, videos, voice notes, audio, documents, GIFs, stickers, locations and contact cards, in one-to-one chats and groups, with the right senders and dates. System messages ("X joined"), deleted-message markers, call logs, reactions, polls, status updates and channels are not moved.
+Text messages, photos, videos, voice notes, audio, documents, GIFs, stickers, locations and contact cards, with the right dates. System messages ("X joined"), deleted-message markers, call logs, reactions, polls, status updates and channels are not moved.
+
+## Known issues
+
+Tested once, in September 2026, from a Pixel 10 Pro XL to an iPhone on iOS 27.0: 64 one-to-one chats with about 25,000 messages and 889 media files came across, with thumbnails, and media opened. The history of group chats was written to the database but did not show up in WhatsApp after the restore, and the cause is not known yet.
 
 ## Development
 
