@@ -9,7 +9,10 @@ Pick Color                     ⌘⇧2
 ✓ Universal Control Watcher
     Watching
     Last reset: 13:22, recovered
-    Reset Universal Control Now
+    Reset Universal Control        ▸
+───────────────────────────────
+prime-consultant: Watching
+Unpair prime-consultant
 ───────────────────────────────
 ✓ Start at Login
 Quit Gremlin
@@ -18,6 +21,7 @@ Quit Gremlin
 - **Grab Text** (`⌘⇧1`) shows the screenshot crosshair (space switches to window mode). The selected area is read with Apple's on-device text recognition, the same engine Live Text uses, and the text goes to the clipboard.
 - **Pick Color** (`⌘⇧2`) shows the system color loupe. The color you click goes to the clipboard as sRGB hex, e.g. `#1e1e2e`.
 - **Universal Control Watcher** resets Universal Control when it gets stuck on another Mac (see below).
+- **Pair Another Mac…** connects to Gremlin on your other Mac, so each can reset Universal Control on the other.
 
 The hotkeys are always on. Switches (the checkmark items) are remembered between launches, and everything that is switched on starts when Gremlin does. Start at Login uses the system login item (System Settings → General → Login Items), so Quit Gremlin really quits.
 
@@ -54,7 +58,7 @@ It streams Universal Control's logs as the current user:
 - **Recovered:** `In-Circle Devices: [<peer>]`
 - **Peer gone:** `IDS <peer>: Device Unavailable` / `Device Lost`
 
-`<peer>` is any 8-hex-digit device ID. The retries are ~30 s apart, so "gave up" comes a few minutes after the wake.
+`<peer>` is any 8-hex-digit device ID. How long the retries take depends on the failure. `-6722` means the other Mac didn't answer, and each retry waits up to ~30 s. `-71143` means the other Mac reset the connection during pairing verification, and all 6 retries fail within seconds.
 
 When a peer gives up, the watcher waits 10 s and flips the same setting as the System Settings toggle, off for 3 s and back on:
 
@@ -64,13 +68,23 @@ sleep 3
 defaults -currentHost write com.apple.universalcontrol Disable -bool false
 ```
 
-The flip makes the peer go unavailable and available again and starts a fresh initial sync. The watcher ignores that unavailable/available pair and judges the reset by the result of the new sync: the peer joining is a recovery, and giving up again is a failed reset. Failed resets back off (10 s, 1 min, 5 min), then it stops until the peer really goes away and comes back. It never resets a peer that is away, and it restarts `log stream` if it exits. If Gremlin quits mid-flip, Universal Control is switched back on at quit or on the next launch.
+The flip makes the peer go unavailable and available again and starts a fresh initial sync. The watcher ignores that unavailable/available pair and judges the reset by the result of the new sync: the peer joining is a recovery, and giving up again is a failed reset. Failed resets back off (10 s, 1 min, 5 min), then it tries again every 30 min while the peer stays stuck. It never resets a peer that is away, and it restarts `log stream` if it exits. If Gremlin quits mid-flip, Universal Control is switched back on at quit or on the next launch.
+
+Flipping it on this Mac does not always help. On 2026-09-29 the MacBook Pro refused marvin's connections (`-71143`), three resets on marvin changed nothing, and it needed a toggle on the MacBook Pro. That is what pairing is for.
+
+### Two Macs
+
+Install Gremlin on both Macs and choose **Pair Another Mac…** on each within 2 minutes. Both show a 6-digit code. Click Pair on both if the codes match. The first time, macOS asks to allow Gremlin to find devices on the local network.
+
+Once paired, the Macs talk over the local network (Bonjour, `_gremlin._tcp`, TCP port 47101), not over the AWDL link Universal Control uses. When Bonjour can't see the other Mac, Gremlin tries the addresses it last reported, which includes its Tailscale address. Only three messages exist: `status`, `reset` (flip Universal Control on the receiving Mac) and `stuck` (tell the other Mac what this one sees). Each is signed with a key agreed during pairing (Curve25519, HMAC-SHA256), with a timestamp and nonce so it can't be replayed. The key is kept in the login keychain.
+
+Only one of the two Macs runs the resets, so they don't toggle each other at the same time. The other one reports what it sees to that Mac and waits. When a Mac logs `-71143`, the other Mac refused, so the first reset happens on the refusing Mac. Otherwise it happens on the Mac that saw the failure. The next ones go to the other Mac, then both. If the other Mac can't be reached, each Mac falls back to resetting itself.
+
+The Reset Universal Control submenu does the same by hand: on this Mac, on the other one, or on both.
 
 Resets and their results go to the menu, to a notification, and to `~/Library/Logs/Gremlin.log`.
 
 Don't reset Universal Control any other way. `killall UniversalControl` is ignored, `launchctl kickstart -k gui/$UID/com.apple.ensemble` is refused by SIP, and `kill -9` gets it relaunched but left the other Mac holding a dead session until Universal Control was toggled on that Mac.
-
-It is not yet proven that flipping the setting on this Mac alone gets out of a real stuck state (a manual toggle did, in under a second). Check `~/Library/Logs/Gremlin.log` the first time it fires.
 
 ## Uninstall
 
@@ -79,5 +93,6 @@ Turn off Start at Login, quit Gremlin, then:
 ```sh
 rm -rf ~/Applications/Gremlin.app
 defaults delete com.bunniesinc.gremlin
+security delete-generic-password -s com.bunniesinc.gremlin.peer ~/Library/Keychains/login.keychain-db
 security delete-identity -c "Gremlin Code Signing" ~/Library/Keychains/login.keychain-db
 ```

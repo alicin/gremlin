@@ -5,11 +5,23 @@ import UserNotifications
 // sync can fail all its retries, and then it never talks to that peer again until the
 // setting is toggled. See README.md for the log lines this relies on.
 final class UniversalControlWatcher: Feature {
+    enum Target {
+        case local
+        case remote
+        case both
+    }
+
     enum Phase {
         case watching
-        case scheduled(Date)
-        case resetting
-        case gaveUp
+        case scheduled(Date, Target)
+        case resetting(Target)
+        case gaveUp(retryAt: Date)
+        case peerHandling
+    }
+
+    private enum Side {
+        case here
+        case there
     }
 
     private enum Sync {
@@ -18,28 +30,37 @@ final class UniversalControlWatcher: Feature {
     }
 
     var onChange: (() -> Void)?
+    var link: PeerLink?
 
     private(set) var isRunning = false
     private(set) var phase = Phase.watching
     private var streamRunning = false
 
+    // The error Universal Control logs when the other Mac resets the connection during pairing verification.
+    private static let refusedError = "-71143"
     private let backoff: [TimeInterval] = [10, 60, 300]
+    private let retryInterval: TimeInterval = 1800
     private let recoveryTimeout: TimeInterval = 300
+    private let peerTimeout: TimeInterval = 600
     private var failedResets = 0
+    private var plan: [Target] = []
     private var stuckPeer: String?
     private var available: [String: Bool] = [:]
     private var sync: [String: Sync] = [:]
+    private var lastError: [String: String] = [:]
 
     private var process: Process?
     private var pendingReset: DispatchWorkItem?
     private var resetTimeout: DispatchWorkItem?
-    // Our own flip makes Universal Control report every peer unavailable and then available again.
+    // A flip on either Mac makes Universal Control report the other one unavailable and then available again.
     private var ownFlipUntil = Date.distantPast
 
     private let defaults = UserDefaults.standard
     private let lastResetKey = "universalControlLastReset"
     private let lastOutcomeKey = "universalControlLastResetOutcome"
+    private let lastWhereKey = "universalControlLastResetWhere"
     private let flippingKey = "universalControlFlipInProgress"
+    private let selfIDKey = "universalControlSelfID"
 
     init() {
         if defaults.bool(forKey: flippingKey) {
@@ -47,6 +68,8 @@ final class UniversalControlWatcher: Feature {
             finishFlip()
         }
     }
+
+    var selfID: String? { defaults.string(forKey: selfIDKey) }
 
     // MARK: Feature
 
@@ -56,6 +79,7 @@ final class UniversalControlWatcher: Feature {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         Log.write("Watcher started")
         startStream()
+        if selfID == nil { findSelfID() }
         onChange?()
     }
 
@@ -83,11 +107,13 @@ final class UniversalControlWatcher: Feature {
     var statusText: String {
         guard isRunning else { return "Off" }
         guard streamRunning else { return "Log stream stopped, restarting…" }
+        let peer = stuckPeer ?? "Mac"
         switch phase {
         case .watching: return "Watching"
-        case .scheduled(let date): return "\(stuckPeer ?? "Mac") stuck, resetting at \(Self.time(date, seconds: true))"
-        case .resetting: return "Reset, waiting for reconnect…"
-        case .gaveUp: return "Gave up after \(backoff.count) resets, waiting for the Mac to come back"
+        case .scheduled(let date, let target): return "\(peer) stuck, resetting \(place(target)) at \(Self.time(date, seconds: true))"
+        case .resetting(let target): return "Reset \(place(target)), waiting for reconnect…"
+        case .gaveUp(let date): return "Still stuck, trying again at \(Self.time(date, seconds: false))"
+        case .peerHandling: return "\(peer) stuck, \(remoteName) is handling it"
         }
     }
 
@@ -96,31 +122,38 @@ final class UniversalControlWatcher: Feature {
         var text = "Last reset: "
         if !Calendar.current.isDateInToday(date) { text += date.formatted(.dateTime.month(.abbreviated).day()) + " " }
         text += Self.time(date, seconds: false)
+        if let place = defaults.string(forKey: lastWhereKey), !place.isEmpty { text += " \(place)" }
         if let outcome = defaults.string(forKey: lastOutcomeKey) { text += ", \(outcome)" }
         return text
     }
 
-    // MARK: Reset
+    private var remoteName: String { link?.paired?.name ?? "the other Mac" }
 
-    func resetNow() {
-        Log.write("Manual reset")
-        reset()
+    private func place(_ target: Target) -> String {
+        switch target {
+        case .local: return link?.paired == nil ? "" : "here"
+        case .remote: return "on \(remoteName)"
+        case .both: return "on both Macs"
+        }
     }
 
-    private func reset() {
+    // MARK: Reset
+
+    func resetNow(_ target: Target = .local) {
+        Log.write("Manual reset \(place(target))")
+        reset(target)
+    }
+
+    private func reset(_ target: Target) {
         pendingReset?.cancel()
         resetTimeout?.cancel()
-        if isRunning { phase = .resetting }
+        if isRunning { phase = .resetting(target) }
         defaults.set(Date(), forKey: lastResetKey)
+        defaults.set(place(target), forKey: lastWhereKey)
         defaults.set(isRunning ? "waiting" : nil, forKey: lastOutcomeKey)
-        ownFlipUntil = Date().addingTimeInterval(10)
-        Log.write("Resetting Universal Control")
-        defaults.set(true, forKey: flippingKey)
-        setDisabled(true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self, self.defaults.bool(forKey: self.flippingKey) else { return }
-            self.finishFlip()
-        }
+        ownFlipUntil = Date().addingTimeInterval(15)
+        if target != .remote { flip() }
+        if target != .local { resetRemote(fallBack: target == .remote) }
 
         guard isRunning else {
             onChange?()
@@ -138,6 +171,33 @@ final class UniversalControlWatcher: Feature {
         onChange?()
     }
 
+    private func flip() {
+        Log.write("Resetting Universal Control")
+        defaults.set(true, forKey: flippingKey)
+        setDisabled(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, self.defaults.bool(forKey: self.flippingKey) else { return }
+            self.finishFlip()
+        }
+    }
+
+    private func resetRemote(fallBack: Bool) {
+        let name = remoteName
+        guard let link, link.paired != nil else {
+            if fallBack { flip() }
+            return
+        }
+        Log.write("Asking \(name) to reset Universal Control")
+        link.request(Message(type: "reset")) { [weak self] reply in
+            guard reply?.ok != true else { return }
+            Log.write("Couldn't reach \(name)" + (fallBack ? ", resetting here instead" : ""))
+            guard fallBack, let self else { return }
+            self.defaults.set(self.place(.local), forKey: self.lastWhereKey)
+            self.onChange?()
+            self.flip()
+        }
+    }
+
     private func setDisabled(_ disabled: Bool) {
         let domain = "com.apple.universalcontrol" as CFString
         CFPreferencesSetValue("Disable" as CFString, disabled ? kCFBooleanTrue : kCFBooleanFalse, domain, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
@@ -147,6 +207,78 @@ final class UniversalControlWatcher: Feature {
     private func finishFlip() {
         setDisabled(false)
         defaults.removeObject(forKey: flippingKey)
+    }
+
+    // MARK: The other Mac
+
+    func handle(_ message: Message) -> Message {
+        var reply = Message(type: "reply")
+        let name = message.name ?? "The other Mac"
+        switch message.type {
+        case "reset":
+            Log.write("\(name) asked for a reset")
+            ownFlipUntil = Date().addingTimeInterval(15)
+            defaults.set(Date(), forKey: lastResetKey)
+            defaults.set("", forKey: lastWhereKey)
+            defaults.set("asked by \(name)", forKey: lastOutcomeKey)
+            flip()
+            reply.ok = true
+            onChange?()
+        case "stuck":
+            guard isRunning else {
+                reply.ok = false
+                break
+            }
+            Log.write("\(name) says Universal Control is stuck (\(message.error ?? "no error"))")
+            let peer = message.ucID ?? link?.paired?.ucID ?? "peer"
+            stuck(peer, refusedBy: message.error == Self.refusedError ? .here : nil, reported: true)
+            reply.ok = true
+        default:
+            break
+        }
+        reply.status = statusText
+        return reply
+    }
+
+    // With two paired Macs, only one runs the resets, so they don't toggle each other at the same time.
+    private var isCoordinator: Bool {
+        guard let link, let paired = link.paired else { return true }
+        return link.id < paired.id
+    }
+
+    private func canReach(_ peer: String) -> Bool {
+        guard let paired = link?.paired else { return false }
+        return paired.ucID == nil || paired.ucID == peer
+    }
+
+    private func report(_ peer: String) {
+        stuckPeer = peer
+        phase = .peerHandling
+        Log.write("\(peer) stuck, telling \(remoteName)")
+        var message = Message(type: "stuck")
+        message.error = lastError[peer]
+        link?.request(message) { [weak self] reply in
+            guard let self, case .peerHandling = self.phase else { return }
+            if reply?.ok == true {
+                let timeout = DispatchWorkItem { [weak self] in
+                    guard let self, case .peerHandling = self.phase else { return }
+                    Log.write("\(self.remoteName) didn't fix it within \(Int(self.peerTimeout / 60))m")
+                    self.settle()
+                }
+                self.resetTimeout?.cancel()
+                self.resetTimeout = timeout
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.peerTimeout, execute: timeout)
+            } else {
+                Log.write("Couldn't reach \(self.remoteName), handling it here")
+                self.phase = .watching
+                self.stuck(peer, refusedBy: nil, reported: true, alone: true)
+            }
+        }
+        onChange?()
+    }
+
+    private func refusal(_ peer: String) -> Side? {
+        lastError[peer] == Self.refusedError ? .there : nil
     }
 
     // MARK: Events
@@ -159,6 +291,7 @@ final class UniversalControlWatcher: Feature {
             peers.forEach(joined)
             return
         }
+        if message.hasPrefix("Increment Sync Clock: ") { return learnSelfID(message) }
 
         guard message.hasPrefix("IDS "), let colon = message.firstIndex(of: ":") else { return }
         let peer = String(message[message.index(message.startIndex, offsetBy: 4)..<colon])
@@ -170,7 +303,9 @@ final class UniversalControlWatcher: Feature {
         } else if event.hasPrefix("Initial Sync (Retry "), isFinalRetry(event) {
             Log.write(message)
             sync[peer] = .finalRetry
-        } else if event.hasPrefix("Initial Sync Failed"), case .finalRetry = sync[peer] {
+        } else if event.hasPrefix("Initial Sync Failed") {
+            lastError[peer] = Self.errorCode(event)
+            guard case .finalRetry = sync[peer] else { return }
             Log.write(message)
             sync[peer] = .finalRetryFailed
         } else if event.hasPrefix("available=") {
@@ -179,7 +314,7 @@ final class UniversalControlWatcher: Feature {
             if case .finalRetryFailed = sync[peer], isAvailable, event.hasSuffix("valid=false") {
                 Log.write(message)
                 sync[peer] = nil
-                stuck(peer)
+                stuck(peer, refusedBy: refusal(peer), reported: false)
             }
         } else if event == "Device Available" {
             deviceAvailable(peer, message: message)
@@ -193,37 +328,62 @@ final class UniversalControlWatcher: Feature {
         return numbers.count == 2 && numbers[0] == numbers[1]
     }
 
+    private static func errorCode(_ event: String) -> String? {
+        guard let open = event.firstIndex(of: "("), let close = event[open...].firstIndex(of: ")") else { return nil }
+        return String(event[event.index(after: open)..<close])
+    }
+
     private var inOwnFlip: Bool { Date() < ownFlipUntil }
 
-    private func stuck(_ peer: String) {
-        if case .resetting = phase {
+    private func stuck(_ peer: String, refusedBy side: Side?, reported: Bool, alone: Bool = false) {
+        switch phase {
+        case .scheduled, .gaveUp:
+            return
+        case .peerHandling:
+            return report(peer)
+        case .resetting:
             failedResets += 1
             Log.write("Reset \(failedResets) didn't help")
             defaults.set("didn't recover", forKey: lastOutcomeKey)
-        } else if case .scheduled = phase {
-            return
-        } else if case .gaveUp = phase {
-            return
+        case .watching:
+            if !reported, !isCoordinator, canReach(peer) { return report(peer) }
+            failedResets = 0
+            if canReach(peer), !alone {
+                plan = side == .there ? [.remote, .local, .both] : [.local, .remote, .both]
+            } else {
+                plan = [.local, .local, .local]
+            }
         }
         stuckPeer = peer
         resetTimeout?.cancel()
+        guard failedResets < plan.count else { return giveUp(peer) }
 
-        guard failedResets < backoff.count else {
-            phase = .gaveUp
-            Log.write("Giving up until \(peer) goes away and comes back")
-            notify("Still stuck after \(backoff.count) resets. Toggle Universal Control on the other Mac.")
-            onChange?()
-            return
-        }
-
-        let delay = backoff[failedResets]
-        if failedResets > 0 { notify("Reset didn't reconnect \(peer). Trying again in \(Self.duration(delay)).") }
-        Log.write("\(peer) stuck, resetting in \(Self.duration(delay))")
-        let work = DispatchWorkItem { [weak self] in self?.reset() }
-        pendingReset = work
-        phase = .scheduled(Date().addingTimeInterval(delay))
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        let target = plan[failedResets]
+        let delay = backoff[min(failedResets, backoff.count - 1)]
+        if failedResets > 0 { notify("Reset didn't reconnect \(peer). Trying again \(place(target)) in \(Self.duration(delay)).") }
+        Log.write("\(peer) stuck, resetting \(place(target)) in \(Self.duration(delay))")
+        schedule(target, after: delay)
+        phase = .scheduled(Date().addingTimeInterval(delay), target)
         onChange?()
+    }
+
+    private func giveUp(_ peer: String) {
+        let retryAt = Date().addingTimeInterval(retryInterval)
+        if failedResets == plan.count {
+            let hint = link?.paired == nil ? " Try toggling Universal Control on the other Mac." : ""
+            notify("Still stuck after \(plan.count) resets. Trying again every \(Int(retryInterval / 60)) minutes.\(hint)")
+        }
+        Log.write("\(peer) still stuck, trying again at \(Self.time(retryAt, seconds: false))")
+        schedule(plan.contains(.remote) ? .both : .local, after: retryInterval)
+        phase = .gaveUp(retryAt: retryAt)
+        onChange?()
+    }
+
+    private func schedule(_ target: Target, after delay: TimeInterval) {
+        pendingReset?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.reset(target) }
+        pendingReset = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func joined(_ peer: String) {
@@ -234,9 +394,9 @@ final class UniversalControlWatcher: Feature {
             Log.write("\(peer) reconnected after reset")
             defaults.set("recovered", forKey: lastOutcomeKey)
             notify("Reconnected \(peer) after a reset.")
-        case .scheduled, .gaveUp:
+        case .scheduled, .gaveUp, .peerHandling:
             guard stuckPeer == peer else { return }
-            Log.write("\(peer) reconnected on its own")
+            Log.write("\(peer) reconnected")
         case .watching:
             return
         }
@@ -276,6 +436,47 @@ final class UniversalControlWatcher: Feature {
         content.title = "Universal Control"
         content.body = body
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    // MARK: This Mac's ID
+
+    // Universal Control only bumps its own entry in the sync clock, e.g. "[592575D1: 480, C2D1D741: 383] -> [592575D1: 481, C2D1D741: 383]".
+    private func learnSelfID(_ message: String) {
+        let sides = message.dropFirst("Increment Sync Clock: ".count).components(separatedBy: " -> ")
+        guard sides.count == 2 else { return }
+        let before = Self.clock(sides[0])
+        guard let id = Self.clock(sides[1]).first(where: { before[$0.key] != $0.value })?.key, id != selfID else { return }
+        defaults.set(id, forKey: selfIDKey)
+        Log.write("This Mac is \(id) in Universal Control")
+    }
+
+    private static func clock(_ text: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for entry in text.trimmingCharacters(in: CharacterSet(charactersIn: "[] ")).components(separatedBy: ", ") {
+            let parts = entry.components(separatedBy: ": ")
+            if parts.count == 2 { result[parts[0]] = parts[1] }
+        }
+        return result
+    }
+
+    private func findSelfID() {
+        DispatchQueue.global().async { [weak self] in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
+            process.arguments = ["show", "--last", "1d", "--style", "ndjson", "--predicate",
+                                 #"process == "UniversalControl" AND eventMessage BEGINSWITH "Increment Sync Clock""#]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { return }
+            let output = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let last = output.split(separator: 0x0A).reversed().lazy.compactMap {
+                (try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any])?["eventMessage"] as? String
+            }.first
+            guard let last else { return }
+            DispatchQueue.main.async { self?.learnSelfID(last) }
+        }
     }
 
     // MARK: Log stream
