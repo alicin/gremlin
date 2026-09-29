@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>pluck</string>
+    <string>gremlin</string>
     <key>CFBundleIdentifier</key>
-    <string>com.bunniesinc.pluck</string>
+    <string>com.bunniesinc.gremlin</string>
     <key>CFBundleName</key>
-    <string>Pluck</string>
+    <string>Gremlin</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

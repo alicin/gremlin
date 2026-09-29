@@ -24,23 +24,23 @@ final class Pluck {
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(keyCode), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: 0x706C636B, id: id), GetApplicationEventTarget(), 0, &ref)
         if status != noErr {
-            NSLog("pluck: cmd+shift+%u is taken (%d)", id, status)
+            NSLog("gremlin: cmd+shift+%u is taken (%d)", id, status)
         }
         hotKeys.append(ref)
     }
 
     private func pressed(_ id: UInt32) {
-        guard !busy else { return }
         switch id {
-        case 1: captureText()
+        case 1: grabText()
         case 2: pickColor()
         default: break
         }
     }
 
-    private func captureText() {
+    func grabText() {
+        guard !busy else { return }
         busy = true
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-\(UUID().uuidString).png")
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("gremlin-\(UUID().uuidString).png")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-i", "-x", file.path]
@@ -70,7 +70,8 @@ final class Pluck {
         return request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }
 
-    private func pickColor() {
+    func pickColor() {
+        guard !busy else { return }
         busy = true
         NSColorSampler().show { color in
             self.busy = false
@@ -87,9 +88,3 @@ final class Pluck {
         NSPasteboard.general.setString(string, forType: .string)
     }
 }
-
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-let pluck = Pluck()
-pluck.start()
-app.run()
