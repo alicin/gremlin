@@ -5,6 +5,14 @@ A menu bar app for small "this Mac" fixes and tools on macOS.
 ```
 Grab Text                      ⌘⇧1
 Pick Color                     ⌘⇧2
+Paste as Plain Text           ⌃⌥⌘V
+Fix Focus                     ⌃⌥⌘F
+───────────────────────────────
+Keep Awake: Until 15:30        ▸
+Restart                        ▸
+───────────────────────────────
+  Auto-Fix Lost Focus
+✓ Fix Stuck Notification Center
 ───────────────────────────────
 ✓ Universal Control Watcher
     Watching
@@ -18,18 +26,24 @@ Unpair prime-consultant
 Quit Gremlin
 ```
 
-- **Grab Text** (`⌘⇧1`) shows the screenshot crosshair (space switches to window mode). The selected area is read with Apple's on-device text recognition, the same engine Live Text uses, and the text goes to the clipboard.
+- **Grab Text** (`⌘⇧1`) shows the screenshot crosshair (space switches to window mode). The selected area is read with Apple's on-device text recognition, the same engine Live Text uses, and the text goes to the clipboard. If the selection has a QR code or barcode in it, its content is copied instead.
 - **Pick Color** (`⌘⇧2`) shows the system color loupe. The color you click goes to the clipboard as sRGB hex, e.g. `#1e1e2e`.
+- **Paste as Plain Text** (`⌃⌥⌘V`) strips the formatting from the clipboard and pastes. Without Accessibility permission it only strips it, and you paste with `⌘V`.
+- **Fix Focus** (`⌃⌥⌘F`) is for when the menu bar shows one app but typing goes nowhere or to another window, which happens after Space switches and with Universal Control. It does what switching away and back does: Gremlin takes focus for a moment and hands it back to the app whose window is on top, then raises that window.
+- **Keep Awake** keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off, and lists any other apps keeping it awake.
+- **Restart** restarts one of Dock, Finder, the menu bar (SystemUIServer), Control Center, Notification Center, Window Manager (Stage Manager and tiling), the clipboard (`pboard`), Universal Clipboard (`useractivityd`, then `pboard`) or iCloud Drive (`bird`), or all of them. They run as you and macOS starts them again, so no admin password is needed. Restarting the clipboard empties it.
+- **Auto-Fix Lost Focus** runs Fix Focus by itself when the frontmost app has windows on screen but none of them has focus, or another app's window sits on top of them on the same display, for 3 seconds. If the problem comes back within 15 seconds of a fix, it leaves that app alone until Gremlin restarts, because some apps never report focus properly. Off by default.
+- **Fix Stuck Notification Center** restarts Notification Center when it stays above 90% CPU for 30 seconds. On macOS 27.0 a banner can freeze halfway in and leave it spinning.
 - **Universal Control Watcher** resets Universal Control when it gets stuck on another Mac (see below).
 - **Pair Another Mac…** connects to Gremlin on your other Mac, so each can reset Universal Control on the other.
 
-The hotkeys are always on. Switches (the checkmark items) are remembered between launches, and everything that is switched on starts when Gremlin does. Start at Login uses the system login item (System Settings → General → Login Items), so Quit Gremlin really quits.
+The hotkeys are always on. Switches (the checkmark items) are remembered between launches, and everything that is switched on starts when Gremlin does. Keep Awake also survives a relaunch until its time is up. Start at Login uses the system login item (System Settings → General → Login Items), so Quit Gremlin really quits.
 
-It is a few Swift files with no dependencies. The hotkeys are Carbon hotkeys, so it needs no Accessibility permission.
+It is a few Swift files with no dependencies. The hotkeys are Carbon hotkeys, so they need no Accessibility permission. Auto-Fix Lost Focus and the paste in Paste as Plain Text do, and macOS asks for it the first time you use them. Gremlin's log is `~/Library/Logs/Gremlin.log`.
 
 ## Install
 
-Requires macOS 13+ and the Xcode Command Line Tools.
+Requires macOS 14+ and the Xcode Command Line Tools.
 
 ```sh
 git clone https://github.com/alicin/gremlin.git

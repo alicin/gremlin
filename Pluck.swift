@@ -3,38 +3,15 @@ import Carbon.HIToolbox
 import Vision
 
 final class Pluck {
-    private var hotKeys: [EventHotKeyRef?] = []
     private var busy = false
 
     func start() {
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
-            var hotKey = EventHotKeyID()
-            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKey)
-            Unmanaged<Pluck>.fromOpaque(context!).takeUnretainedValue().pressed(hotKey.id)
-            return noErr
-        }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), nil)
-
-        register(keyCode: kVK_ANSI_1, id: 1)
-        register(keyCode: kVK_ANSI_2, id: 2)
+        HotKeys.shared.register(kVK_ANSI_1, cmdKey | shiftKey, name: "cmd+shift+1") { [weak self] in self?.grabText() }
+        HotKeys.shared.register(kVK_ANSI_2, cmdKey | shiftKey, name: "cmd+shift+2") { [weak self] in self?.pickColor() }
+        HotKeys.shared.register(kVK_ANSI_V, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+V") { [weak self] in
+            self?.pasteAsPlainText()
+        }
         CGRequestScreenCaptureAccess()
-    }
-
-    private func register(keyCode: Int, id: UInt32) {
-        var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(UInt32(keyCode), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: 0x706C636B, id: id), GetApplicationEventTarget(), 0, &ref)
-        if status != noErr {
-            NSLog("gremlin: cmd+shift+%u is taken (%d)", id, status)
-        }
-        hotKeys.append(ref)
-    }
-
-    private func pressed(_ id: UInt32) {
-        switch id {
-        case 1: grabText()
-        case 2: pickColor()
-        default: break
-        }
     }
 
     func grabText() {
@@ -45,7 +22,7 @@ final class Pluck {
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-i", "-x", file.path]
         process.terminationHandler = { _ in
-            let text = Self.recognizeText(in: file)
+            let text = Self.read(file)
             try? FileManager.default.removeItem(at: file)
             DispatchQueue.main.async {
                 self.busy = false
@@ -59,15 +36,22 @@ final class Pluck {
         }
     }
 
-    private static func recognizeText(in file: URL) -> String? {
+    // A QR code or barcode in the selection wins over the text around it.
+    private static func read(_ file: URL) -> String? {
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
-        try? VNImageRequestHandler(cgImage: image).perform([request])
-        return request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        let barcodes = VNDetectBarcodesRequest()
+        let text = VNRecognizeTextRequest()
+        text.recognitionLevel = .accurate
+        text.usesLanguageCorrection = true
+        text.automaticallyDetectsLanguage = true
+        try? VNImageRequestHandler(cgImage: image).perform([barcodes, text])
+        var codes: [String] = []
+        for payload in barcodes.results?.compactMap(\.payloadStringValue) ?? [] where !codes.contains(payload) {
+            codes.append(payload)
+        }
+        if !codes.isEmpty { return codes.joined(separator: "\n") }
+        return text.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }
 
     func pickColor() {
@@ -80,6 +64,19 @@ final class Pluck {
                 .map { String(format: "%02x", Int((min(max($0, 0), 1) * 255).rounded())) }
                 .joined()
             self.copy("#" + hex)
+        }
+    }
+
+    func pasteAsPlainText() {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        copy(text)
+        // Posting the paste keystroke needs Accessibility; without it the clipboard is still left as plain text.
+        guard AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) else { return }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: down)
+            event?.flags = .maskCommand
+            event?.post(tap: .cghidEventTap)
         }
     }
 

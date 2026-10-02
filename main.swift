@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import ServiceManagement
 
 protocol Feature: AnyObject {
@@ -11,18 +12,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let key: String
         let title: String
         let feature: Feature
+        let defaultOn: Bool
     }
 
     private let defaults = UserDefaults.standard
     private let pluck = Pluck()
+    private let focus = Focus()
+    private let keepAwake = KeepAwake()
     private let watcher = UniversalControlWatcher()
     private let link = PeerLink()
+    // Auto-fix focus is off by default because it needs Accessibility permission.
     private lazy var switches = [
-        Switch(key: "universalControlWatcher", title: "Universal Control Watcher", feature: watcher),
+        Switch(key: "autoFixFocus", title: "Auto-Fix Lost Focus", feature: focus, defaultOn: false),
+        Switch(key: "notificationCenterWatchdog", title: "Fix Stuck Notification Center", feature: NotificationCenterWatchdog(), defaultOn: true),
+        Switch(key: "universalControlWatcher", title: "Universal Control Watcher", feature: watcher, defaultOn: true),
     ]
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var switchItems: [NSMenuItem] = []
+    private let keepAwakeItem = NSMenuItem(title: "Keep Awake", action: nil, keyEquivalent: "")
+    private let othersAwakeItem = NSMenuItem()
     private let watcherStatusItem = NSMenuItem()
     private let lastResetItem = NSMenuItem()
     private let resetItem = NSMenuItem(title: "Reset Universal Control Now", action: nil, keyEquivalent: "")
@@ -33,13 +42,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let loginItem = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        defaults.register(defaults: Dictionary(uniqueKeysWithValues: switches.map { ($0.key, true) }))
+        defaults.register(defaults: Dictionary(uniqueKeysWithValues: switches.map { ($0.key, $0.defaultOn) }))
         if !defaults.bool(forKey: "loginItemRegistered") {
             try? SMAppService.mainApp.register()
             defaults.set(true, forKey: "loginItemRegistered")
         }
 
         pluck.start()
+        HotKeys.shared.register(kVK_ANSI_F, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+F") { [weak self] in
+            self?.focus.fix()
+        }
+        keepAwake.onChange = { [weak self] in self?.refresh() }
         watcher.onChange = { [weak self] in self?.refresh() }
         watcher.link = link
         link.localUCID = { [weak self] in self?.watcher.selfID }
@@ -62,11 +75,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         switches.forEach { $0.feature.stop() }
+        keepAwake.stop()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         refresh()
         checkRemote()
+        let others = KeepAwake.others()
+        othersAwakeItem.title = "Also kept awake by " + others.joined(separator: ", ")
+        othersAwakeItem.isHidden = others.isEmpty
     }
 
     private func checkRemote() {
@@ -83,14 +100,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
 
+        let hyper: NSEvent.ModifierFlags = [.control, .option, .command]
         menu.addItem(action("Grab Text", #selector(grabText), key: "1"))
         menu.addItem(action("Pick Color", #selector(pickColor), key: "2"))
+        menu.addItem(action("Paste as Plain Text", #selector(pastePlain), key: "v", modifiers: hyper))
+        menu.addItem(action("Fix Focus", #selector(fixFocus), key: "f", modifiers: hyper))
+        menu.addItem(.separator())
+
+        let awake = NSMenu()
+        let off = action("Off", #selector(setKeepAwake))
+        off.tag = -1
+        awake.addItem(off)
+        for (index, choice) in KeepAwake.choices.enumerated() {
+            let item = action(choice.title, #selector(setKeepAwake))
+            item.tag = index
+            awake.addItem(item)
+        }
+        othersAwakeItem.isEnabled = false
+        awake.addItem(.separator())
+        awake.addItem(othersAwakeItem)
+        keepAwakeItem.submenu = awake
+        menu.addItem(keepAwakeItem)
+
+        let restart = NSMenu()
+        for (index, item) in Restart.items.enumerated() {
+            let menuItem = action(item.title, #selector(restartProcess))
+            menuItem.tag = index
+            restart.addItem(menuItem)
+        }
+        restart.addItem(.separator())
+        let all = action("Restart All", #selector(restartProcess))
+        all.tag = -1
+        restart.addItem(all)
+        let restartItem = NSMenuItem(title: "Restart", action: nil, keyEquivalent: "")
+        restartItem.submenu = restart
+        menu.addItem(restartItem)
         menu.addItem(.separator())
 
         for (index, item) in switches.enumerated() {
             let menuItem = action(item.title, #selector(toggleSwitch))
             menuItem.tag = index
             switchItems.append(menuItem)
+            if item.feature === watcher { menu.addItem(.separator()) }
             menu.addItem(menuItem)
         }
         for item in [watcherStatusItem, lastResetItem] {
@@ -115,9 +166,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return menu
     }
 
-    private func action(_ title: String, _ selector: Selector, key: String = "") -> NSMenuItem {
+    private func action(_ title: String, _ selector: Selector, key: String = "",
+                        modifiers: NSEvent.ModifierFlags = [.command, .shift]) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
-        item.keyEquivalentModifierMask = [.command, .shift]
+        item.keyEquivalentModifierMask = modifiers
         item.target = self
         return item
     }
@@ -125,6 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         for (index, item) in switches.enumerated() where index < switchItems.count {
             switchItems[index].state = defaults.bool(forKey: item.key) ? .on : .off
+        }
+        keepAwakeItem.title = keepAwake.title
+        for item in keepAwakeItem.submenu?.items ?? [] where item.action == #selector(setKeepAwake) {
+            let indefinitely = keepAwake.until == .distantFuture
+            item.state = (item.tag == -1 && !keepAwake.isOn) || (item.tag == KeepAwake.choices.count - 1 && indefinitely) ? .on : .off
         }
         watcherStatusItem.title = watcher.statusText
         watcherStatusItem.isHidden = !watcher.isRunning
@@ -161,6 +218,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func pickColor() {
         pluck.pickColor()
+    }
+
+    @objc private func pastePlain() {
+        pluck.pasteAsPlainText()
+    }
+
+    @objc private func fixFocus() {
+        focus.fix()
+    }
+
+    @objc private func setKeepAwake(_ sender: NSMenuItem) {
+        if sender.tag < 0 {
+            keepAwake.stop()
+        } else {
+            keepAwake.keep(for: KeepAwake.choices[sender.tag].duration)
+        }
+    }
+
+    @objc private func restartProcess(_ sender: NSMenuItem) {
+        if sender.tag < 0 {
+            Restart.restart("everything", Restart.all)
+        } else {
+            let item = Restart.items[sender.tag]
+            Restart.restart(item.title, item.processes)
+        }
     }
 
     @objc private func toggleSwitch(_ sender: NSMenuItem) {

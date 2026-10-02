@@ -52,7 +52,7 @@ rm -rf "$app"
 mv "$build/Gremlin.app" "$app"
 open "$app"
 
-echo "Gremlin is running in the menu bar: cmd+shift+1 copies text, cmd+shift+2 copies a color"
+echo "Gremlin is running in the menu bar"
 if [[ -n "${pluck_removed:-}" ]]; then
     echo "Remove Pluck from System Settings > Privacy & Security > Screen Recording, and allow Gremlin when it asks"
 fi
