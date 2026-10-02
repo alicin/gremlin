@@ -1,66 +1,107 @@
-# gremlin
+# Gremlin
 
-A menu bar app for small "this Mac" fixes and tools on macOS.
+A small menu bar app that fixes the everyday kinks of macOS: lost window focus, a stuck Dock or Notification Center, Universal Control that won't reconnect. It also grabs text and colors off the screen.
 
-```
-Grab Text                      ⌘⇧1
-Pick Color                     ⌘⇧2
-Paste as Plain Text           ⌃⌥⌘V
-Fix Focus                     ⌃⌥⌘F
-───────────────────────────────
-Keep Awake: Until 15:30        ▸
-Restart                        ▸
-───────────────────────────────
-  Auto-Fix Lost Focus
-✓ Fix Stuck Notification Center
-───────────────────────────────
-✓ Universal Control Watcher
-    Watching
-    Last reset: 13:22, recovered
-    Reset Universal Control        ▸
-───────────────────────────────
-prime-consultant: Watching
-Unpair prime-consultant
-───────────────────────────────
-✓ Start at Login
-Quit Gremlin
-```
+<p align="center">
+  <img src="docs/menu.png" width="412" alt="The Gremlin menu">
+</p>
 
-- **Grab Text** (`⌘⇧1`) shows the screenshot crosshair (space switches to window mode). The selected area is read with Apple's on-device text recognition, the same engine Live Text uses, and the text goes to the clipboard. If the selection has a QR code or barcode in it, its content is copied instead.
-- **Pick Color** (`⌘⇧2`) shows the system color loupe. The color you click goes to the clipboard as sRGB hex, e.g. `#1e1e2e`.
-- **Paste as Plain Text** (`⌃⌥⌘V`) strips the formatting from the clipboard and pastes. Without Accessibility permission it only strips it, and you paste with `⌘V`.
-- **Fix Focus** (`⌃⌥⌘F`) is for when the menu bar shows one app but typing goes nowhere or to another window, which happens after Space switches and with Universal Control. It does what switching away and back does: Gremlin takes focus for a moment and hands it back to the app whose window is on top, then raises that window.
-- **Keep Awake** keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off, and lists any other apps keeping it awake.
-- **Restart** restarts one of Dock, Finder, the menu bar (SystemUIServer), Control Center, Notification Center, Window Manager (Stage Manager and tiling), the clipboard (`pboard`), Universal Clipboard (`useractivityd`, then `pboard`) or iCloud Drive (`bird`), or all of them. They run as you and macOS starts them again, so no admin password is needed. Restarting the clipboard empties it.
-- **Auto-Fix Lost Focus** runs Fix Focus by itself when the frontmost app has windows on screen but none of them has focus, or another app's window sits on top of them on the same display, for 3 seconds. If the problem comes back within 15 seconds of a fix, it leaves that app alone until Gremlin restarts, because some apps never report focus properly. Off by default.
-- **Fix Stuck Notification Center** restarts Notification Center when it stays above 90% CPU for 30 seconds. On macOS 27.0 a banner can freeze halfway in and leave it spinning.
-- **Universal Control Watcher** resets Universal Control when it gets stuck on another Mac (see below).
-- **Pair Another Mac…** connects to Gremlin on your other Mac, so each can reset Universal Control on the other.
+It's a handful of Swift files with no dependencies, built from the command line. It runs as you and never asks for an admin password.
 
-The hotkeys are always on. Switches (the checkmark items) are remembered between launches, and everything that is switched on starts when Gremlin does. Keep Awake also survives a relaunch until its time is up. Start at Login uses the system login item (System Settings → General → Login Items), so Quit Gremlin really quits.
+## Features
 
-It is a few Swift files with no dependencies. The hotkeys are Carbon hotkeys, so they need no Accessibility permission. Auto-Fix Lost Focus and the paste in Paste as Plain Text do, and macOS asks for it the first time you use them. Gremlin's log is `~/Library/Logs/Gremlin.log`.
+### Text and color
+
+| Feature | What it does |
+| --- | --- |
+| **Grab Text** `⌘⇧1` | Drag over any part of the screen (space switches to window mode) and the text in it goes to the clipboard. It uses Apple's on-device text recognition, the same engine as Live Text. If the selection has a **QR code or barcode**, its content is copied instead. |
+| **Pick Color** `⌘⇧2` | Opens the system color loupe. The color you click goes to the clipboard as sRGB hex, e.g. `#1e1e2e`. |
+| **Paste as Plain Text** `⌃⌥⌘V` | Strips the formatting from the clipboard and pastes. |
+
+### Focus
+
+macOS sometimes ends up with the menu bar showing one app while your typing goes nowhere, or to a window behind it. It happens most after switching Spaces or using Universal Control. The usual fix is switching to another app and back.
+
+| Feature | What it does |
+| --- | --- |
+| **Fix Focus** `⌃⌥⌘F` | Does that switch in one keystroke. Gremlin takes focus for a moment, hands it back to the app whose window is on top, and raises that window. |
+| **Auto-Fix Lost Focus** | Does it for you. It steps in when the frontmost app has windows on screen but none of them has focus, or another app's window sits on top of them, for 3 seconds. Apps that never report focus properly are left alone after one try. Off by default. |
+
+### Unstick macOS
+
+<p align="center">
+  <img src="docs/restart.png" width="558" alt="The Restart submenu">
+</p>
+
+When part of macOS hangs, restarting just that part usually fixes it, without logging out. **Restart** does it from the menu, one at a time or all at once:
+
+| Item | Restarts | Try it when |
+| --- | --- | --- |
+| Dock | `Dock` | Mission Control, Spaces or `⌃`-number shortcuts stop working, often after sleep |
+| Finder | `Finder` | Finder windows or the desktop stop responding |
+| Menu Bar | `SystemUIServer` | Menu bar items are missing or frozen |
+| Control Center | `ControlCenter` | Control Center or its menu bar icons misbehave |
+| Notification Center | `NotificationCenter` | Banners freeze or notifications stop showing |
+| Window Manager | `WindowManager` | Stage Manager or window tiling gets stuck |
+| Clipboard | `pboard` | Copy, paste or drag and drop stop working. This empties the clipboard. |
+| Universal Clipboard | `useractivityd`, then `pboard` | Copying on one device no longer pastes on another |
+| iCloud Drive | `bird` | iCloud Drive stops syncing |
+
+All of these run as you, and macOS starts them again right away.
+
+**Fix Stuck Notification Center** watches for a macOS 27 bug where a banner freezes halfway in and Notification Center spins at 100% CPU. If it stays above 90% for 30 seconds, Gremlin restarts it. On by default.
+
+### Keep Awake
+
+<p align="center">
+  <img src="docs/keep-awake.png" width="619" alt="The Keep Awake submenu">
+</p>
+
+Keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off. The menu shows when it ends, and lists any other app that is keeping the Mac awake. It survives a Gremlin restart until its time is up.
+
+### Universal Control
+
+**What it is.** Universal Control lets one keyboard and mouse work across Macs and iPads sitting next to each other. You move the pointer past the edge of one screen and keep going on the next device.
+
+**The pain.** After a Mac wakes up, the devices sometimes fail their first handshake, and macOS gives up for good. The pointer stays stuck on one side until you go into System Settings on the right Mac and turn Universal Control off and on.
+
+**How Gremlin fixes it.** Gremlin runs on each Mac, reads Universal Control's logs to spot the moment it gives up, and toggles it automatically, retrying with increasing delays. Paired Gremlins talk over the local network, so whichever Mac notices the problem can get the *other* Mac to toggle. One Mac coordinates, so they don't both toggle at once, and the first toggle goes to whichever Mac is refusing the connection.
+
+To pair, install Gremlin on both Macs, choose **Pair Another Mac…** on each, and click Pair on both if the 6-digit codes match. The menu then shows the other Mac's status, and **Reset Universal Control** can toggle it on this Mac, the other one, or both. The details are [further down](#how-the-universal-control-fix-works).
 
 ## Install
 
-Requires macOS 14+ and the Xcode Command Line Tools.
+Requires macOS 14 or later and the Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
 git clone https://github.com/alicin/gremlin.git
 ./gremlin/install.sh
 ```
 
-Run `install.sh` again after pulling changes. It builds `~/Applications/Gremlin.app` and starts it. If Pluck (the old hotkey-only version) is installed, it is removed.
+This builds `~/Applications/Gremlin.app`, signs it, starts it, and adds it as a login item. Run `install.sh` again after pulling changes.
 
-On first run macOS asks for **Screen Recording** permission, which Grab Text needs, and for permission to show notifications. The app is signed with a self-signed "Gremlin Code Signing" certificate that the installer creates in the login keychain once. The Screen Recording grant follows that certificate, so it survives rebuilds. The first build may ask to let `codesign` use the key; choose Always Allow.
+The app is signed with a self-signed "Gremlin Code Signing" certificate that the installer creates in your login keychain the first time. macOS ties permissions to that certificate, so they survive rebuilds. The first build may ask to let `codesign` use the key; choose Always Allow.
 
-## Universal Control watcher
+### Permissions
 
-### The bug
+macOS asks for each permission the first time a feature needs it:
+
+| Permission | Needed for |
+| --- | --- |
+| Screen Recording | Grab Text |
+| Accessibility | Auto-Fix Lost Focus, and the paste step of Paste as Plain Text (without it, the clipboard is still made plain and you press `⌘V`) |
+| Local Network | Pairing with another Mac |
+| Notifications | Universal Control reset results |
+
+The hotkeys use Carbon hotkeys, so they need no permission. Switches (the checkmark items) are remembered between launches. Everything is logged to `~/Library/Logs/Gremlin.log`.
+
+## How the Universal Control fix works
+
+### The bug in detail
 
 Seen on macOS 27.0 (26A428). When the other Mac wakes or comes back into range, Universal Control runs an "initial sync". If the other Mac isn't ready yet, all 6 retries fail. This Mac then marks the peer `valid=false` and never retries on its own. The other Mac keeps opening a connection every 60 s over AWDL, gets no answer, and hangs up, forever. It only recovers when the peer disappears and comes back, or Universal Control is toggled.
 
-### What the watcher does
+### Detecting and resetting
 
 It streams Universal Control's logs as the current user:
 
@@ -84,9 +125,9 @@ defaults -currentHost write com.apple.universalcontrol Disable -bool false
 
 The flip makes the peer go unavailable and available again and starts a fresh initial sync. The watcher ignores that unavailable/available pair and judges the reset by the result of the new sync: the peer joining is a recovery, and giving up again is a failed reset. Failed resets back off (10 s, 1 min, 5 min), then it tries again every 30 min while the peer stays stuck. It never resets a peer that is away, and it restarts `log stream` if it exits. If Gremlin quits mid-flip, Universal Control is switched back on at quit or on the next launch.
 
-Flipping it on this Mac does not always help. On 2026-09-29 the MacBook Pro refused marvin's connections (`-71143`), three resets on marvin changed nothing, and it needed a toggle on the MacBook Pro. That is what pairing is for.
+Flipping it on this Mac does not always help. When the other Mac is the one refusing the connection (`-71143`), resets here change nothing and it needs a toggle over there. That is what pairing is for.
 
-### Two Macs
+### Two Macs: pairing and coordination
 
 Install Gremlin on both Macs and choose **Pair Another Mac…** on each within 2 minutes. Both show a 6-digit code. Click Pair on both if the codes match. The first time, macOS asks to allow Gremlin to find devices on the local network.
 
