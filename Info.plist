@@ -22,6 +22,8 @@
 	<array>
 		<string>_gremlin._tcp</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Gremlin records your side of the meetings it records.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Gremlin talks to Gremlin on your other Mac to fix Universal Control.</string>
 </dict>

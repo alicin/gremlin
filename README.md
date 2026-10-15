@@ -59,6 +59,25 @@ All of these run as you, and macOS starts them again right away.
 
 Keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off. The menu shows when it ends, and lists any other app that is keeping the Mac awake. It survives a Gremlin restart until its time is up.
 
+### Meetings
+
+| Feature | What it does |
+| --- | --- |
+| **Record Meeting** `⌃⌥⌘R` | Records the meeting's window, or the front window if there's no meeting, until you press it again. The menu bar icon turns into a record button while it runs. |
+| **Record Meetings Automatically** | Starts recording when a call starts and stops when it ends. Off by default. |
+| **Show Recordings** | Opens `~/Movies/Meetings`. |
+
+A call counts as started when Zoom, Teams, Webex, Slack or FaceTime uses the mic, or a browser does while a Google Meet, Teams or Zoom page is its window's current tab. It ends when that app has let go of the mic for 20 seconds, or its window closes. A call you stop by hand isn't picked up again. Gremlin records the window rather than the screen, so other windows on top of it don't show up, but it can't record a minimized window. A browser window shows whichever tab is current, so give the meeting its own window: drag its tab out, or in Safari use File > Add to Dock.
+
+Each meeting gets a folder such as `2026-10-15 14.30 Google Meet`:
+
+- `transcript.md`: written on the Mac with Apple's speech recognition, labelled **Me** (your mic) and **Them** (the call). Without headphones your mic also hears the call, and those duplicate lines are dropped. If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items at the top, using your Claude login rather than an API key.
+- `recording.mp4`: the window's video, compressed with [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) using x265 at CRF 26, 15 fps and at most 2560 px, with the call and your mic mixed into one audio track. An hour-long call takes roughly 25 minutes to compress on an M5.
+
+While recording, and until the compressed copy is done, the folder holds `recording.mov` instead: full resolution, 30 fps, with the call's audio and your mic on separate tracks. Gremlin moves it to the Trash once the compressed copy is the same length. Without ffmpeg, it is kept.
+
+The transcript is ready a few seconds after the call. If Gremlin quits before a meeting is transcribed or compressed, it finishes the job the next time it starts. Transcripts use the system language. To pick another one, run `defaults write com.bunniesinc.gremlin meetingLocale en_GB`. Recording a meeting needs macOS 27.
+
 ### Universal Control
 
 **What it is.** Universal Control lets one keyboard and mouse work across Macs and iPads sitting next to each other. You move the pointer past the edge of one screen and keep going on the next device.
@@ -88,10 +107,11 @@ macOS asks for each permission the first time a feature needs it:
 
 | Permission | Needed for |
 | --- | --- |
-| Screen Recording | Grab Text |
+| Screen Recording | Grab Text, recording meetings |
+| Microphone | Recording your side of a meeting |
 | Accessibility | Auto-Fix Lost Focus, and the paste step of Paste as Plain Text (without it, the clipboard is still made plain and you press `⌘V`) |
 | Local Network | Pairing with another Mac |
-| Notifications | Universal Control reset results |
+| Notifications | Universal Control reset results, meeting recordings |
 
 The hotkeys use Carbon hotkeys, so they need no permission. Switches (the checkmark items) are remembered between launches. Everything is logged to `~/Library/Logs/Gremlin.log`.
 
@@ -147,6 +167,7 @@ Turn off Start at Login, quit Gremlin, then:
 
 ```sh
 rm -rf ~/Applications/Gremlin.app
+rm -rf ~/Movies/Meetings  # only if you don't want the recordings
 defaults delete com.bunniesinc.gremlin
 security delete-generic-password -s com.bunniesinc.gremlin.peer ~/Library/Keychains/login.keychain-db
 security delete-identity -c "Gremlin Code Signing" ~/Library/Keychains/login.keychain-db

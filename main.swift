@@ -7,6 +7,7 @@ protocol Feature: AnyObject {
     func stop()
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private struct Switch {
         let key: String
@@ -21,15 +22,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let keepAwake = KeepAwake()
     private let watcher = UniversalControlWatcher()
     private let link = PeerLink()
+    private let meetings = Meetings()
     // Auto-fix focus is off by default because it needs Accessibility permission.
     private lazy var switches = [
         Switch(key: "autoFixFocus", title: "Auto-Fix Lost Focus", feature: focus, defaultOn: false),
         Switch(key: "notificationCenterWatchdog", title: "Fix Stuck Notification Center", feature: NotificationCenterWatchdog(), defaultOn: true),
+        Switch(key: "recordMeetings", title: "Record Meetings Automatically", feature: meetings, defaultOn: false),
         Switch(key: "universalControlWatcher", title: "Universal Control Watcher", feature: watcher, defaultOn: true),
     ]
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var switchItems: [NSMenuItem] = []
+    private let recordItem = NSMenuItem(title: "", action: #selector(toggleRecording), keyEquivalent: "r")
+    private let meetingStatusItem = NSMenuItem()
     private let keepAwakeItem = NSMenuItem(title: "Keep Awake", action: nil, keyEquivalent: "")
     private let othersAwakeItem = NSMenuItem()
     private let watcherStatusItem = NSMenuItem()
@@ -52,6 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotKeys.shared.register(kVK_ANSI_F, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+F") { [weak self] in
             self?.focus.fix()
         }
+        HotKeys.shared.register(kVK_ANSI_R, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+R") { [weak self] in
+            self?.meetings.toggle()
+        }
+        meetings.onChange = { [weak self] in self?.refresh() }
         keepAwake.onChange = { [weak self] in self?.refresh() }
         watcher.onChange = { [weak self] in self?.refresh() }
         watcher.link = link
@@ -66,11 +75,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.feature.start()
         }
 
-        let image = NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: "Gremlin")
-        image?.isTemplate = true
-        statusItem.button?.image = image
         statusItem.menu = buildMenu()
         refresh()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard meetings.recording != nil else { return .terminateNow }
+        meetings.finish { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -105,6 +117,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(action("Pick Color", #selector(pickColor), key: "2"))
         menu.addItem(action("Paste as Plain Text", #selector(pastePlain), key: "v", modifiers: hyper))
         menu.addItem(action("Fix Focus", #selector(fixFocus), key: "f", modifiers: hyper))
+        menu.addItem(.separator())
+
+        recordItem.keyEquivalentModifierMask = hyper
+        recordItem.target = self
+        menu.addItem(recordItem)
+        meetingStatusItem.isEnabled = false
+        meetingStatusItem.indentationLevel = 1
+        menu.addItem(meetingStatusItem)
+        menu.addItem(action("Show Recordings", #selector(showRecordings), modifiers: []))
         menu.addItem(.separator())
 
         let awake = NSMenu()
@@ -178,6 +199,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for (index, item) in switches.enumerated() where index < switchItems.count {
             switchItems[index].state = defaults.bool(forKey: item.key) ? .on : .off
         }
+        recordItem.title = meetings.recording == nil ? "Record Meeting" : "Stop Recording"
+        meetingStatusItem.title = meetings.statusText ?? ""
+        meetingStatusItem.isHidden = meetings.statusText == nil
+        let image = NSImage(systemSymbolName: meetings.recording == nil ? "pawprint.fill" : "record.circle",
+                            accessibilityDescription: "Gremlin")
+        image?.isTemplate = true
+        statusItem.button?.image = image
         keepAwakeItem.title = keepAwake.title
         for item in keepAwakeItem.submenu?.items ?? [] where item.action == #selector(setKeepAwake) {
             let indefinitely = keepAwake.until == .distantFuture
@@ -226,6 +254,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func fixFocus() {
         focus.fix()
+    }
+
+    @objc private func toggleRecording() {
+        meetings.toggle()
+    }
+
+    @objc private func showRecordings() {
+        try? FileManager.default.createDirectory(at: Meetings.folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(Meetings.folder)
     }
 
     @objc private func setKeepAwake(_ sender: NSMenuItem) {
@@ -286,7 +323,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 }
 
 let app = NSApplication.shared
-let delegate = AppDelegate()
+let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
+// install.sh stops Gremlin with SIGTERM; quitting through AppKit lets a meeting recording finish writing.
+signal(SIGTERM, SIG_IGN)
+let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+terminate.setEventHandler { NSApp.terminate(nil) }
+terminate.resume()
 app.run()
