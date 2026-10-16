@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         switches.forEach { $0.feature.stop() }
+        meetings.notes.stop()
         keepAwake.stop()
     }
 

@@ -129,11 +129,13 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
                 }
                 let filter = SCContentFilter(desktopIndependentWindow: window)
                 let config = SCStreamConfiguration()
-                let scale = CGFloat(filter.pointPixelScale)
-                let shrink = min(1, 3840 / max(filter.contentRect.width * scale, filter.contentRect.height * scale, 1))
-                config.width = Int(filter.contentRect.width * scale * shrink) & ~1
-                config.height = Int(filter.contentRect.height * scale * shrink) & ~1
-                config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+                // Retina pixels at 30 fps took enough GPU and encoder time to make the call drop frames. One pixel per
+                // point is still sharper than the screen shares a call sends.
+                let shrink = min(1, 1920 / max(filter.contentRect.width, filter.contentRect.height, 1))
+                config.captureResolution = .nominal
+                config.width = Int(filter.contentRect.width * shrink) & ~1
+                config.height = Int(filter.contentRect.height * shrink) & ~1
+                config.minimumFrameInterval = CMTime(value: 1, timescale: 15)
                 config.scalesToFit = true
                 config.capturesAudio = true
                 config.excludesCurrentProcessAudio = true
@@ -302,7 +304,7 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
     }
 
     // Processes other than Gremlin that are taking audio from an input device, with their bundle IDs.
-    private static func micUsers() -> [pid_t: String] {
+    nonisolated static func micUsers() -> [pid_t: String] {
         let system = AudioObjectID(kAudioObjectSystemObject)
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
                                                  mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
@@ -318,7 +320,7 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
         return users
     }
 
-    private static func property<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, as: T.Type) -> T? {
+    private nonisolated static func property<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, as: T.Type) -> T? {
         var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
                                                  mElement: kAudioObjectPropertyElementMain)
         var size = UInt32(MemoryLayout<T>.size)

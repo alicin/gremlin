@@ -71,12 +71,14 @@ A call counts as started when Zoom, Teams, Webex, Slack or FaceTime uses the mic
 
 Each meeting gets a folder such as `2026-10-15 14.30 Google Meet`:
 
-- `transcript.md`: written on the Mac with Apple's speech recognition, labelled **Me** (your mic) and **Them** (the call). Without headphones your mic also hears the call, and those duplicate lines are dropped. If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items at the top, using your Claude login rather than an API key.
-- `recording.mp4`: the window's video, compressed with [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) using x265 at CRF 26, 15 fps and at most 2560 px, with the call and your mic mixed into one audio track. An hour-long call takes roughly 25 minutes to compress on an M5.
+- `transcript.md`: written on the Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`), labelled **Me** (your mic) and **Them** (the call). whisper detects the language, Turkish and English included. Without headphones your mic also hears the call, and those duplicate lines are dropped. If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items in English at the top, using your Claude login rather than an API key.
+- `recording.mp4`: the window's video, compressed with [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) using x265 at CRF 26, with the call and your mic mixed into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call should take roughly 15 minutes to compress on an M5.
 
-While recording, and until the compressed copy is done, the folder holds `recording.mov` instead: full resolution, 30 fps, with the call's audio and your mic on separate tracks. Gremlin moves it to the Trash once the compressed copy is the same length. Without ffmpeg, it is kept.
+While recording, and until the compressed copy is done, the folder holds `recording.mov` instead: 15 fps, one pixel per point of the window and at most 1920 px, with the call's audio and your mic on separate tracks. Recording at Retina resolution and 30 fps made the call drop frames. Gremlin moves it to the Trash once the compressed copy is the same length. Without ffmpeg, it is kept.
 
-The transcript is ready a few seconds after the call. If Gremlin quits before a meeting is transcribed or compressed, it finishes the job the next time it starts. Transcripts use the system language. To pick another one, run `defaults write com.bunniesinc.gremlin meetingLocale en_GB`. Recording a meeting needs macOS 27.
+The first transcript downloads whisper's model (large-v3-turbo, about 875 MB) and a voice detection model to `~/Library/Application Support/Gremlin/Models`. After that, a call is transcribed in a fraction of its length: 3 minutes of Turkish took 24 seconds on an M5. whisper picks each side's language from the first thing it hears. If it guesses wrong, pin one with `defaults write com.bunniesinc.gremlin meetingLanguage tr`. Without whisper, Gremlin falls back to Apple's speech recognition, which only knows a few languages and uses the system one.
+
+If Gremlin quits before a meeting is transcribed or compressed, it finishes the job the next time it starts. Recording a meeting needs macOS 27.
 
 ### Universal Control
 
@@ -168,6 +170,7 @@ Turn off Start at Login, quit Gremlin, then:
 ```sh
 rm -rf ~/Applications/Gremlin.app
 rm -rf ~/Movies/Meetings  # only if you don't want the recordings
+rm -rf ~/Library/Application\ Support/Gremlin
 defaults delete com.bunniesinc.gremlin
 security delete-generic-password -s com.bunniesinc.gremlin.peer ~/Library/Keychains/login.keychain-db
 security delete-identity -c "Gremlin Code Signing" ~/Library/Keychains/login.keychain-db

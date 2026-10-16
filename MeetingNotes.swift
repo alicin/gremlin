@@ -18,10 +18,40 @@ final class MeetingNotes {
         var text: String
     }
 
+    private struct Whisper {
+        let cli: URL
+        let ffmpeg: URL
+        let model: URL
+        let vad: URL
+    }
+
+    private struct WhisperOutput: Decodable {
+        struct Result: Decodable {
+            let language: String
+        }
+
+        struct Passage: Decodable {
+            struct Offsets: Decodable {
+                let from: Int
+                let to: Int
+            }
+
+            let offsets: Offsets
+            let text: String
+        }
+
+        let result: Result
+        let transcription: [Passage]
+    }
+
+    private static let models = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Gremlin/Models")
+
     var onChange: (() -> Void)?
     private(set) var status: String?
     private var queue: [URL] = []
     private var running = false
+    private var current: Process?
 
     func process(_ folder: URL) {
         guard !queue.contains(folder) else { return }
@@ -66,7 +96,7 @@ final class MeetingNotes {
             setStatus("Transcribing \(name)…")
             let started = Date()
             do {
-                let segments = try await transcribe(video)
+                let segments = try await transcribe(video, name: name)
                 let body = try await Self.markdown(name: name, video: video, segments: segments)
                 try body.write(to: transcript, atomically: true, encoding: .utf8)
                 Log.write("Meeting \(name): transcribed \(segments.count) passages in \(Int(Date().timeIntervalSince(started)))s")
@@ -114,21 +144,88 @@ final class MeetingNotes {
 
     // MARK: Transcript
 
-    private func transcribe(_ video: URL) async throws -> [Segment] {
+    private func transcribe(_ video: URL, name: String) async throws -> [Segment] {
         let asset = AVURLAsset(url: video)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         // Meetings records the call's audio as the first track and the microphone as the second.
         let speakers = tracks.count > 1 ? ["Them", "Me"] : ["Speaker"]
+        var whisper: Whisper?
+        do {
+            whisper = try await setUpWhisper()
+        } catch {
+            Log.write("Meeting \(name): using Apple's transcriber, whisper isn't ready: \(error.localizedDescription)")
+        }
+        setStatus("Transcribing \(name)…")
         var segments: [Segment] = []
-        for (track, speaker) in zip(tracks, speakers) {
-            let audio = FileManager.default.temporaryDirectory.appendingPathComponent("gremlin-\(UUID().uuidString).m4a")
-            defer { try? FileManager.default.removeItem(at: audio) }
-            try await Self.extract(track, of: asset, to: audio)
-            for (range, text) in try await Self.recognize(audio) where !text.isEmpty {
-                segments.append(Segment(speaker: speaker, start: range.start.seconds, end: range.end.seconds, text: text))
+        for (index, (track, speaker)) in zip(tracks, speakers).enumerated() {
+            let passages: [(start: Double, end: Double, text: String)]
+            if let whisper {
+                let heard = try await recognize(track: index, of: video, with: whisper)
+                Log.write("Meeting \(name): whisper heard \(speaker) speaking \(heard.language)")
+                passages = heard.passages
+            } else {
+                let audio = FileManager.default.temporaryDirectory.appendingPathComponent("gremlin-\(UUID().uuidString).m4a")
+                defer { try? FileManager.default.removeItem(at: audio) }
+                try await Self.extract(track, of: asset, to: audio)
+                passages = try await Self.recognize(audio).map { ($0.0.start.seconds, $0.0.end.seconds, $0.1) }
+            }
+            for passage in passages where !passage.text.isEmpty {
+                segments.append(Segment(speaker: speaker, start: passage.start, end: passage.end, text: passage.text))
             }
         }
         return Self.merge(segments)
+    }
+
+    // whisper.cpp, when it's installed, knows Turkish and detects which language is spoken. Apple's transcriber is
+    // the fallback; it only knows a few languages and has to be told which one.
+    private func setUpWhisper() async throws -> Whisper? {
+        guard let cli = Self.find("whisper-cli"), let ffmpeg = Self.ffmpeg else { return nil }
+        let model = try await download("ggml-large-v3-turbo-q8_0.bin",
+                                       from: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin")
+        let vad = try await download("ggml-silero-v6.2.0.bin",
+                                     from: "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin")
+        return Whisper(cli: cli, ffmpeg: ffmpeg, model: model, vad: vad)
+    }
+
+    private func download(_ name: String, from address: String) async throws -> URL {
+        let file = Self.models.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: file.path) { return file }
+        setStatus("Downloading the transcription model…")
+        let (temporary, response) = try await URLSession.shared.download(from: URL(string: address)!)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        try FileManager.default.createDirectory(at: Self.models, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: temporary, to: file)
+        Log.write("Meetings: downloaded \(name)")
+        return file
+    }
+
+    private func recognize(track index: Int, of video: URL,
+                           with whisper: Whisper) async throws -> (language: String, passages: [(start: Double, end: Double, text: String)]) {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("gremlin-\(UUID().uuidString)")
+        let audio = base.appendingPathExtension("wav")
+        let json = base.appendingPathExtension("json")
+        defer { [audio, json].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let extract = await run(whisper.ffmpeg, ["-nostdin", "-loglevel", "error", "-y", "-i", video.path, "-map", "0:a:\(index)",
+                                                 "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", audio.path])
+        guard extract.status == 0 else { throw Self.failure("ffmpeg", extract) }
+        let language = UserDefaults.standard.string(forKey: "meetingLanguage") ?? "auto"
+        // Voice activity detection skips the long silences on each side's track, where whisper tends to make up words.
+        let result = await run(whisper.cli, ["-m", whisper.model.path, "-f", audio.path, "-l", language,
+                                             "--vad", "-vm", whisper.vad.path, "-oj", "-of", base.path, "-np"],
+                               quality: .utility, yieldsDuringCalls: true)
+        guard result.status == 0 else { throw Self.failure("whisper-cli", result) }
+        // A token can end partway through a multibyte character, which JSONDecoder rejects.
+        let data = Data(String(decoding: try Data(contentsOf: json), as: UTF8.self).utf8)
+        let output = try JSONDecoder().decode(WhisperOutput.self, from: data)
+        return (output.result.language, output.transcription.map {
+            (Double($0.offsets.from) / 1000, Double($0.offsets.to) / 1000, $0.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        })
+    }
+
+    private static func failure(_ tool: String, _ result: (status: Int32, output: Data, errors: Data)) -> Error {
+        let message = String(decoding: result.errors, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return NSError(domain: "Gremlin", code: Int(result.status),
+                       userInfo: [NSLocalizedDescriptionKey: "\(tool) exited \(result.status): \(message)"])
     }
 
     private static func extract(_ track: AVAssetTrack, of asset: AVAsset, to url: URL) async throws {
@@ -143,7 +240,7 @@ final class MeetingNotes {
     }
 
     private static func recognize(_ url: URL) async throws -> [(CMTimeRange, String)] {
-        let preferred = UserDefaults.standard.string(forKey: "meetingLocale").map(Locale.init(identifier:)) ?? .current
+        let preferred = UserDefaults.standard.string(forKey: "meetingLanguage").map(Locale.init(identifier:)) ?? .current
         let locale = await SpeechTranscriber.supportedLocale(equivalentTo: preferred) ?? Locale(identifier: "en_US")
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
         if let install = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
@@ -212,12 +309,13 @@ final class MeetingNotes {
         The input is the transcript of a meeting. "Me" is the person who recorded it; "Them" is everyone else on \
         the call, possibly several people. Write a two to four sentence summary, then "### Decisions" and \
         "### Action items" as bullet lists, naming who owns each item when the transcript makes it clear. Leave out \
-        a section that would be empty. Reply with the markdown only, no preamble.
+        a section that would be empty. Write in English whatever language the meeting was in, and reply with the \
+        markdown only, no preamble.
         """
 
     private func summarize(_ transcript: URL, claude: URL) async -> String? {
-        let result = await Self.run(claude, ["-p", Self.summaryPrompt, "--tools", "", "--no-session-persistence"],
-                                    input: transcript, directory: transcript.deletingLastPathComponent(), timeout: 600)
+        let result = await run(claude, ["-p", Self.summaryPrompt, "--tools", "", "--no-session-persistence"],
+                               input: transcript, directory: transcript.deletingLastPathComponent(), timeout: 600)
         let summary = String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard result.status == 0, !summary.isEmpty else {
             Log.write("Meeting \(transcript.deletingLastPathComponent().lastPathComponent): claude exited \(result.status)")
@@ -230,9 +328,8 @@ final class MeetingNotes {
 
     private func compress(_ video: URL, to output: URL, ffmpeg: URL) async -> Bool {
         let audioTracks = (try? await AVURLAsset(url: video).loadTracks(withMediaType: .audio).count) ?? 0
-        // Shrinks only what is bigger than 2560 px, since screen shares rarely arrive sharper than that. Halving the
-        // frame rate leaves text as sharp, makes the file a quarter smaller and the encode almost twice as fast.
-        var graph = "[0:v:0]fps=15,scale=w='min(2560,iw)':h='min(2560,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2[v]"
+        // Meetings records at most 1920 px and 15 fps; older recordings were bigger.
+        var graph = "[0:v:0]fps=15,scale=w='min(1920,iw)':h='min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2[v]"
         var maps = ["-map", "[v]"]
         if audioTracks > 1 {
             graph += ";[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[a]"
@@ -246,7 +343,7 @@ final class MeetingNotes {
             "-x265-params", "log-level=error", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
             "-f", "mp4", partial.path,
         ]
-        let result = await Self.run(ffmpeg, arguments, quality: .utility)
+        let result = await run(ffmpeg, arguments, quality: .utility, yieldsDuringCalls: true)
         guard result.status == 0 else {
             Log.write("Meeting \(video.deletingLastPathComponent().lastPathComponent): ffmpeg exited \(result.status): "
                       + String(decoding: result.errors, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
@@ -269,16 +366,29 @@ final class MeetingNotes {
     static var claude: URL? { find("claude") }
     static var ffmpeg: URL? { find("ffmpeg") }
 
-    private static func run(_ executable: URL, _ arguments: [String], input: URL? = nil, directory: URL? = nil,
-                            timeout: TimeInterval? = nil, quality: QualityOfService = .default) async -> (status: Int32, output: Data, errors: Data) {
+    // ffmpeg would outlive Gremlin and race the copy the next launch starts.
+    func stop() {
+        current?.terminate()
+    }
+
+    private func run(_ executable: URL, _ arguments: [String], input: URL? = nil, directory: URL? = nil,
+                     timeout: TimeInterval? = nil, quality: QualityOfService = .default,
+                     yieldsDuringCalls: Bool = false) async -> (status: Int32, output: Data, errors: Data) {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.qualityOfService = quality
+        if let directory { process.currentDirectoryURL = directory }
+        process.standardInput = input.flatMap { try? FileHandle(forReadingFrom: $0) } ?? FileHandle.nullDevice
+        current = process
+        defer { current = nil }
+        return await Self.wait(for: process, timeout: timeout, yieldsDuringCalls: yieldsDuringCalls)
+    }
+
+    private nonisolated static func wait(for process: Process, timeout: TimeInterval?,
+                                         yieldsDuringCalls: Bool) async -> (status: Int32, output: Data, errors: Data) {
         await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
-                let process = Process()
-                process.executableURL = executable
-                process.arguments = arguments
-                process.qualityOfService = quality
-                if let directory { process.currentDirectoryURL = directory }
-                process.standardInput = input.flatMap { try? FileHandle(forReadingFrom: $0) } ?? FileHandle.nullDevice
                 let output = Pipe()
                 let errors = Pipe()
                 process.standardOutput = output
@@ -291,12 +401,32 @@ final class MeetingNotes {
                 if let timeout {
                     DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if process.isRunning { process.terminate() } }
                 }
+                // Encoding at full speed next to a call makes the call drop frames. Pausing instead could wait forever,
+                // since a browser tab can hold the mic long after the call ends.
+                var calls: DispatchSourceTimer?
+                if yieldsDuringCalls {
+                    var throttled = false
+                    let timer = DispatchSource.makeTimerSource(queue: .global())
+                    timer.schedule(deadline: .now(), repeating: 2)
+                    timer.setEventHandler {
+                        let busy = !Meetings.micUsers().isEmpty
+                        guard busy != throttled, process.isRunning else { return }
+                        throttled = busy
+                        setpriority(PRIO_DARWIN_PROCESS, id_t(process.processIdentifier), busy ? PRIO_DARWIN_BG : 0)
+                        let tool = process.executableURL?.lastPathComponent ?? "process"
+                        Log.write(busy ? "Meetings: running \(tool) at background priority while the mic is in use"
+                                       : "Meetings: running \(tool) at full speed")
+                    }
+                    timer.resume()
+                    calls = timer
+                }
                 var errorData = Data()
                 let group = DispatchGroup()
                 DispatchQueue.global().async(group: group) { errorData = errors.fileHandleForReading.readDataToEndOfFile() }
                 let outputData = output.fileHandleForReading.readDataToEndOfFile()
                 group.wait()
                 process.waitUntilExit()
+                calls?.cancel()
                 continuation.resume(returning: (process.terminationStatus, outputData, errorData))
             }
         }
