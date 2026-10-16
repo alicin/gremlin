@@ -38,6 +38,8 @@ final class UniversalControlWatcher: Feature {
 
     // The error Universal Control logs when the other Mac resets the connection during pairing verification.
     private static let refusedError = "-71143"
+    // What an iPad answers while it is a Sidecar display, for this Mac or another one. No reset has ever helped.
+    private static let busyError = "-6773"
     private let backoff: [TimeInterval] = [10, 60, 300]
     private let retryInterval: TimeInterval = 1800
     private let recoveryTimeout: TimeInterval = 300
@@ -314,6 +316,7 @@ final class UniversalControlWatcher: Feature {
             if case .finalRetryFailed = sync[peer], isAvailable, event.hasSuffix("valid=false") {
                 Log.write(message)
                 sync[peer] = nil
+                if lastError[peer] == Self.busyError { return Log.write("\(peer) is busy, likely as a Sidecar display, leaving it alone") }
                 stuck(peer, refusedBy: refusal(peer), reported: false)
             }
         } else if event == "Device Available" {

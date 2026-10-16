@@ -59,6 +59,14 @@ All of these run as you, and macOS starts them again right away.
 
 Keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off. The menu shows when it ends, and lists any other app that is keeping the Mac awake. It survives a Gremlin restart until its time is up.
 
+### Sidecar
+
+| Feature | What it does |
+| --- | --- |
+| **Use iPad as Display** `⌃⌥⌘S` | Connects your iPad as a Sidecar display, or disconnects it if it already is one. The menu item shows the iPad's name. It always takes the iPad: an iPad that is a display for another Mac switches over, and a session this Mac is still holding is dropped and started fresh. With several iPads nearby, it picks the first one. |
+
+It uses the same private SidecarCore calls as the Displays menu in Control Center. If a macOS update changes them, the item disappears instead of misbehaving.
+
 ### Meetings
 
 | Feature | What it does |
@@ -135,7 +143,7 @@ It streams Universal Control's logs as the current user:
 - **Recovered:** `In-Circle Devices: [<peer>]`
 - **Peer gone:** `IDS <peer>: Device Unavailable` / `Device Lost`
 
-`<peer>` is any 8-hex-digit device ID. How long the retries take depends on the failure. `-6722` means the other Mac didn't answer, and each retry waits up to ~30 s. `-71143` means the other Mac reset the connection during pairing verification, and all 6 retries fail within seconds.
+`<peer>` is any 8-hex-digit device ID. How long the retries take depends on the failure. `-6722` means the other Mac didn't answer, and each retry waits up to ~30 s. `-71143` means the other Mac reset the connection during pairing verification, and all 6 retries fail within seconds. `-6773` is an iPad refusing because it is busy as a Sidecar display, for this Mac or another one. No reset helps with that, so the watcher leaves it alone.
 
 When a peer gives up, the watcher waits 10 s and flips the same setting as the System Settings toggle, off for 3 s and back on:
 

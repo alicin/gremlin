@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let pluck = Pluck()
     private let focus = Focus()
     private let keepAwake = KeepAwake()
+    private let sidecar = Sidecar()
     private let watcher = UniversalControlWatcher()
     private let link = PeerLink()
     private let meetings = Meetings()
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var switchItems: [NSMenuItem] = []
+    private let sidecarItem = NSMenuItem(title: "", action: #selector(toggleSidecar), keyEquivalent: "s")
     private let recordItem = NSMenuItem(title: "", action: #selector(toggleRecording), keyEquivalent: "r")
     private let meetingStatusItem = NSMenuItem()
     private let keepAwakeItem = NSMenuItem(title: "Keep Awake", action: nil, keyEquivalent: "")
@@ -57,9 +59,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotKeys.shared.register(kVK_ANSI_F, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+F") { [weak self] in
             self?.focus.fix()
         }
+        if sidecar.isAvailable {
+            HotKeys.shared.register(kVK_ANSI_S, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+S") { [weak self] in
+                self?.sidecar.toggle()
+            }
+        }
         HotKeys.shared.register(kVK_ANSI_R, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+R") { [weak self] in
             self?.meetings.toggle()
         }
+        sidecar.onChange = { [weak self] in self?.refresh() }
         meetings.onChange = { [weak self] in self?.refresh() }
         keepAwake.onChange = { [weak self] in self?.refresh() }
         watcher.onChange = { [weak self] in self?.refresh() }
@@ -118,6 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(action("Pick Color", #selector(pickColor), key: "2"))
         menu.addItem(action("Paste as Plain Text", #selector(pastePlain), key: "v", modifiers: hyper))
         menu.addItem(action("Fix Focus", #selector(fixFocus), key: "f", modifiers: hyper))
+        sidecarItem.keyEquivalentModifierMask = hyper
+        sidecarItem.target = self
+        sidecarItem.isHidden = !sidecar.isAvailable
+        menu.addItem(sidecarItem)
         menu.addItem(.separator())
 
         recordItem.keyEquivalentModifierMask = hyper
@@ -200,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for (index, item) in switches.enumerated() where index < switchItems.count {
             switchItems[index].state = defaults.bool(forKey: item.key) ? .on : .off
         }
+        sidecarItem.title = sidecar.title
         recordItem.title = meetings.recording == nil ? "Record Meeting" : "Stop Recording"
         meetingStatusItem.title = meetings.statusText ?? ""
         meetingStatusItem.isHidden = meetings.statusText == nil
@@ -207,6 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             accessibilityDescription: "Gremlin")
         image?.isTemplate = true
         statusItem.button?.image = image
+        sidecarItem.isEnabled = sidecar.canToggle
         keepAwakeItem.title = keepAwake.title
         for item in keepAwakeItem.submenu?.items ?? [] where item.action == #selector(setKeepAwake) {
             let indefinitely = keepAwake.until == .distantFuture
@@ -264,6 +278,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func showRecordings() {
         try? FileManager.default.createDirectory(at: Meetings.folder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(Meetings.folder)
+    }
+
+    @objc private func toggleSidecar() {
+        sidecar.toggle()
     }
 
     @objc private func setKeepAwake(_ sender: NSMenuItem) {
