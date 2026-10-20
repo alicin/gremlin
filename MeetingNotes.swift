@@ -328,8 +328,8 @@ final class MeetingNotes {
 
     private func compress(_ video: URL, to output: URL, ffmpeg: URL) async -> Bool {
         let audioTracks = (try? await AVURLAsset(url: video).loadTracks(withMediaType: .audio).count) ?? 0
-        // Meetings records at most 1920 px and 15 fps; older recordings were bigger.
-        var graph = "[0:v:0]fps=15,scale=w='min(1920,iw)':h='min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2[v]"
+        // Meetings records at most 2560 px and 15 fps; older recordings were bigger.
+        var graph = "[0:v:0]fps=15,scale=w='min(2560,iw)':h='min(2560,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2[v]"
         var maps = ["-map", "[v]"]
         if audioTracks > 1 {
             graph += ";[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[a]"

@@ -71,18 +71,17 @@ It uses the same private SidecarCore calls as the Displays menu in Control Cente
 
 | Feature | What it does |
 | --- | --- |
-| **Record Meeting** `⌃⌥⌘R` | Records the meeting's window, or the front window if there's no meeting, until you press it again. The menu bar icon turns into a record button while it runs. |
-| **Record Meetings Automatically** | Starts recording when a call starts and stops when it ends. Off by default. |
+| **Record Meeting** `⌃⌥⌘R` | Records the screen the pointer is on, with all sound and your mic, until you press it again. The menu bar icon turns into a record button while it runs. |
 | **Show Recordings** | Opens `~/Movies/Meetings`. |
 
-A call counts as started when Zoom, Teams, Webex, Slack or FaceTime uses the mic, or a browser does while a Google Meet, Teams or Zoom page is its window's current tab. It ends when that app has let go of the mic for 20 seconds, or its window closes. A call you stop by hand isn't picked up again. Gremlin records the window rather than the screen, so other windows on top of it don't show up, but it can't record a minimized window. A browser window shows whichever tab is current, so give the meeting its own window: drag its tab out, or in Safari use File > Add to Dock.
+Recording only starts and stops when you ask. If it can't start or fails, Gremlin says so in a dialog and in its menu, since its notifications may be turned off.
 
-Each meeting gets a folder such as `2026-10-15 14.30 Google Meet`:
+Each recording gets a folder such as `2026-10-15 14.30 Meeting`:
 
 - `transcript.md`: written on the Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`), labelled **Me** (your mic) and **Them** (the call). whisper detects the language, Turkish and English included. Without headphones your mic also hears the call, and those duplicate lines are dropped. If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items in English at the top, using your Claude login rather than an API key.
-- `recording.mp4`: the window's video, compressed with [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) using x265 at CRF 26, with the call and your mic mixed into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call should take roughly 15 minutes to compress on an M5.
+- `recording.mp4`: the screen's video, compressed with [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) using x265 at CRF 26, with the call and your mic mixed into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call should take roughly 15 minutes to compress on an M5.
 
-While recording, and until the compressed copy is done, the folder holds `recording.mov` instead: 15 fps, one pixel per point of the window and at most 1920 px, with the call's audio and your mic on separate tracks. Recording at Retina resolution and 30 fps made the call drop frames. Gremlin moves it to the Trash once the compressed copy is the same length. Without ffmpeg, it is kept.
+While recording, and until the compressed copy is done, the folder holds `recording.mov` instead: 15 fps, one pixel per point of the screen and at most 2560 px, with all other sound and your mic on separate tracks. Recording at Retina resolution and 30 fps made the call drop frames. Gremlin moves it to the Trash once the compressed copy is the same length. Without ffmpeg, it is kept.
 
 The first transcript downloads whisper's model (large-v3-turbo, about 875 MB) and a voice detection model to `~/Library/Application Support/Gremlin/Models`. After that, a call is transcribed in a fraction of its length: 3 minutes of Turkish took 24 seconds on an M5. whisper picks each side's language from the first thing it hears. If it guesses wrong, pin one with `defaults write com.bunniesinc.gremlin meetingLanguage tr`. Without whisper, Gremlin falls back to Apple's speech recognition, which only knows a few languages and uses the system one.
 

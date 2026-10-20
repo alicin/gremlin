@@ -2,25 +2,14 @@ import AppKit
 import AVFoundation
 import CoreAudio
 import ScreenCaptureKit
-@preconcurrency import UserNotifications
 
-// Records a meeting's window to ~/Movies/Meetings: its video, the call's audio and the microphone, the last two on
-// separate tracks so the transcript can tell Me from Them. With auto-detect on, a meeting is a meeting app (or a
-// browser on a Meet, Teams or Zoom page) using the mic, and it ends when that app lets go of the mic.
+// Records the screen the pointer is on to ~/Movies/Meetings, from the moment it's asked to until it's asked to stop: its
+// video, all system audio and the microphone, the last two on separate tracks so the transcript can tell Me from Them.
 @MainActor
-final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRecordingOutputDelegate {
+final class Meetings: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     struct Recording {
-        let name: String
         let folder: URL
         let started: Date
-        let windowID: CGWindowID
-        let micPIDs: Set<pid_t>
-    }
-
-    private struct Candidate {
-        let windowID: CGWindowID
-        let name: String
-        let micPIDs: Set<pid_t>
     }
 
     static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Meetings")
@@ -31,54 +20,28 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
     private var stream: SCStream?
     private var output: SCRecordingOutput?
     private var starting = false
-    private var autoDetect = false
-    private var timer: Timer?
-    private var quietSince: Date?
-    // Muting doesn't always keep the mic open, so the call has to stay quiet this long before it counts as over.
-    private let quietTimeout: TimeInterval = 20
-    // A meeting stopped by hand isn't picked up again until its app lets go of the mic.
-    private var ignoredPIDs: Set<pid_t> = []
+    private var lastError: String?
     private var onFinish: [() -> Void] = []
 
     override init() {
         super.init()
         notes.onChange = { [weak self] in self?.onChange?() }
         notes.resume(in: Self.folder)
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
-        }
-    }
-
-    func start() {
-        autoDetect = true
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
-    }
-
-    func stop() {
-        autoDetect = false
     }
 
     var statusText: String? {
         if let recording {
             let elapsed = Int(Date().timeIntervalSince(recording.started))
-            return "Recording \(recording.name) · " + String(format: "%d:%02d", elapsed / 60, elapsed % 60)
+            return "Recording · " + String(format: "%d:%02d", elapsed / 60, elapsed % 60)
         }
-        return notes.status
+        return notes.status ?? lastError
     }
 
     func toggle() {
-        if let recording {
-            ignoredPIDs = recording.micPIDs
-            return finishCapture("stopped by hand")
-        }
+        if recording != nil { return finishCapture("stopped by hand") }
         guard !starting else { return }
         AVCaptureDevice.requestAccess(for: .audio) { _ in
-            DispatchQueue.main.async {
-                guard let candidate = Self.findMeeting(Self.micUsers()) ?? Self.frontWindow() else {
-                    return self.notify("Nothing to record", "Gremlin records the meeting window, or the front window when there's no meeting.")
-                }
-                self.begin(candidate)
-            }
+            DispatchQueue.main.async { self.begin() }
         }
     }
 
@@ -89,31 +52,7 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
         finishCapture("Gremlin is quitting")
     }
 
-    private func poll() {
-        let users = Self.micUsers()
-        ignoredPIDs.formIntersection(users.keys)
-        if let recording {
-            if !Self.windowExists(recording.windowID) { return finishCapture("its window closed") }
-            guard !recording.micPIDs.isEmpty else { return }
-            if !recording.micPIDs.isDisjoint(with: users.keys) {
-                quietSince = nil
-            } else if let quietSince, Date().timeIntervalSince(quietSince) > quietTimeout {
-                finishCapture("the call let go of the mic")
-            } else if quietSince == nil {
-                quietSince = Date()
-            }
-            return
-        }
-        guard autoDetect, !starting else { return }
-        let candidates = users.filter { !ignoredPIDs.contains($0.key) }
-        guard !candidates.isEmpty, let meeting = Self.findMeeting(candidates) else { return }
-        notify("Recording \(meeting.name)", "Stop it from the Gremlin menu or with ⌃⌥⌘R.")
-        begin(meeting)
-    }
-
-    // MARK: Recording
-
-    private func begin(_ candidate: Candidate) {
+    private func begin() {
         starting = true
         onChange?()
         Task {
@@ -123,25 +62,23 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
                 onChange?()
             }
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-                guard let window = content.windows.first(where: { $0.windowID == candidate.windowID }) else {
-                    throw CocoaError(.fileNoSuchFile)
-                }
-                let filter = SCContentFilter(desktopIndependentWindow: window)
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard let display = Self.display(in: content) else { throw CocoaError(.fileNoSuchFile) }
+                let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
                 let config = SCStreamConfiguration()
                 // Retina pixels at 30 fps took enough GPU and encoder time to make the call drop frames. One pixel per
-                // point is still sharper than the screen shares a call sends.
-                let shrink = min(1, 1920 / max(filter.contentRect.width, filter.contentRect.height, 1))
+                // point keeps text readable.
+                let shrink = min(1, 2560 / CGFloat(max(display.width, display.height, 1)))
                 config.captureResolution = .nominal
-                config.width = Int(filter.contentRect.width * shrink) & ~1
-                config.height = Int(filter.contentRect.height * shrink) & ~1
+                config.width = Int(CGFloat(display.width) * shrink) & ~1
+                config.height = Int(CGFloat(display.height) * shrink) & ~1
                 config.minimumFrameInterval = CMTime(value: 1, timescale: 15)
                 config.scalesToFit = true
                 config.capturesAudio = true
                 config.excludesCurrentProcessAudio = true
                 config.captureMicrophone = true
 
-                let target = Self.newFolder(candidate.name)
+                let target = Self.newFolder("Meeting")
                 try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
                 folder = target
                 let recordingConfig = SCRecordingOutputConfiguration()
@@ -156,16 +93,13 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
 
                 self.stream = stream
                 self.output = output
-                quietSince = nil
-                recording = Recording(name: candidate.name, folder: target, started: Date(),
-                                      windowID: candidate.windowID, micPIDs: candidate.micPIDs)
-                Log.write("Meeting recording: \(candidate.name), window \(candidate.windowID) at \(config.width)x\(config.height), "
-                          + "mic held by \(candidate.micPIDs.sorted())")
+                lastError = nil
+                recording = Recording(folder: target, started: Date())
+                Log.write("Meeting recording: display \(display.displayID) at \(config.width)x\(config.height)")
             } catch {
                 if let folder { try? FileManager.default.removeItem(at: folder) }
-                ignoredPIDs.formUnion(candidate.micPIDs)
-                Log.write("Meeting recording: couldn't start \(candidate.name): \(error.localizedDescription)")
-                notify("Couldn't record \(candidate.name)", error.localizedDescription)
+                Log.write("Meeting recording: couldn't start: \(error.localizedDescription)")
+                alert("Couldn't start recording", error.localizedDescription)
             }
         }
     }
@@ -211,7 +145,7 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
     nonisolated func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
         Task { @MainActor in
             Log.write("Meeting recording: writing failed: \(error.localizedDescription)")
-            self.notify("Meeting recording failed", error.localizedDescription)
+            self.alert("The meeting recording failed", error.localizedDescription)
             self.finished()
         }
     }
@@ -229,78 +163,11 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
         return folder
     }
 
-    // MARK: Finding the meeting
-
-    private static let browsers = ["com.apple.safari", "com.google.chrome", "company.thebrowser.browser",
-                                   "com.microsoft.edgemac", "com.brave.browser", "org.mozilla.firefox"]
-
-    // A browser window's title is its current tab's.
-    private static func meetingName(bundle: String, title: String) -> String? {
-        let bundle = bundle.lowercased()
-        if browsers.contains(where: bundle.hasPrefix) {
-            if title == "Meet" || ["Meet -", "Meet –", "Meet:"].contains(where: title.hasPrefix) || title.contains("Google Meet") {
-                return "Google Meet"
-            }
-            if title.contains("Microsoft Teams") { return "Teams" }
-            if title.hasPrefix("Zoom Meeting") || title.hasPrefix("Zoom Webinar") { return "Zoom" }
-            return nil
-        }
-        switch bundle {
-        case "us.zoom.xos": return title.hasPrefix("Zoom Meeting") || title.hasPrefix("Zoom Webinar") ? "Zoom" : nil
-        case "com.microsoft.teams2", "com.microsoft.teams": return title.isEmpty ? nil : "Teams"
-        case "com.apple.facetime": return "FaceTime"
-        case "com.tinyspeck.slackmacgap": return "Slack"
-        case "cisco-systems.spark", "com.webex.meetingmanager": return "Webex"
-        default: return nil
-        }
-    }
-
-    // Browsers take the mic in a helper process, e.g. com.apple.WebKit.GPU for Safari or com.google.Chrome.helper.
-    private static func owns(_ app: String, _ micUser: String) -> Bool {
-        let app = app.lowercased()
-        let mic = micUser.lowercased()
-        guard !mic.isEmpty else { return false }
-        if mic.hasPrefix("com.apple.webkit") { return app.hasPrefix("com.apple.safari") }
-        if mic == "com.apple.avconferenced" { return app == "com.apple.facetime" }
-        return app.hasPrefix(mic.components(separatedBy: ".helper")[0])
-    }
-
-    private static func findMeeting(_ micUsers: [pid_t: String]) -> Candidate? {
-        guard !micUsers.isEmpty,
-              let windows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
-        else { return nil }
-        var bundles: [pid_t: String] = [:]
-        var best: (candidate: Candidate, area: CGFloat)?
-        for info in windows {
-            guard info[kCGWindowLayer as String] as? Int == 0,
-                  let id = info[kCGWindowNumber as String] as? CGWindowID,
-                  let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let title = info[kCGWindowName as String] as? String,
-                  let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) })
-            else { continue }
-            if bundles[pid] == nil { bundles[pid] = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "" }
-            guard let bundle = bundles[pid], let name = meetingName(bundle: bundle, title: title) else { continue }
-            let pids = Set(micUsers.filter { $0.key == pid || owns(bundle, $0.value) }.keys)
-            let area = bounds.width * bounds.height
-            guard !pids.isEmpty, area > (best?.area ?? 0) else { continue }
-            best = (Candidate(windowID: id, name: name, micPIDs: pids), area)
-        }
-        return best?.candidate
-    }
-
-    private static func frontWindow() -> Candidate? {
-        guard let app = NSWorkspace.shared.frontmostApplication,
-              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
-              let window = windows.first(where: {
-                  $0[kCGWindowLayer as String] as? Int == 0 && $0[kCGWindowOwnerPID as String] as? pid_t == app.processIdentifier
-              }),
-              let id = window[kCGWindowNumber as String] as? CGWindowID
-        else { return nil }
-        return Candidate(windowID: id, name: app.localizedName ?? "Recording", micPIDs: [])
-    }
-
-    private static func windowExists(_ id: CGWindowID) -> Bool {
-        (CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]])?.isEmpty == false
+    private static func display(in content: SCShareableContent) -> SCDisplay? {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+        let id = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()
+        return content.displays.first { $0.displayID == id } ?? content.displays.first
     }
 
     // Processes other than Gremlin that are taking audio from an input device, with their bundle IDs.
@@ -330,14 +197,16 @@ final class Meetings: NSObject, @preconcurrency Feature, SCStreamDelegate, SCRec
         return value.move()
     }
 
-    private func notify(_ title: String, _ body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { return }
-            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    // Notifications can be turned off for Gremlin, and a recording that didn't happen mustn't go unnoticed.
+    private func alert(_ title: String, _ body: String) {
+        lastError = title
+        onChange?()
+        DispatchQueue.main.async {
+            NSApp.activate()
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = body
+            alert.runModal()
         }
     }
 }

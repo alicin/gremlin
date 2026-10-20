@@ -28,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var switches = [
         Switch(key: "autoFixFocus", title: "Auto-Fix Lost Focus", feature: focus, defaultOn: false),
         Switch(key: "notificationCenterWatchdog", title: "Fix Stuck Notification Center", feature: NotificationCenterWatchdog(), defaultOn: true),
-        Switch(key: "recordMeetings", title: "Record Meetings Automatically", feature: meetings, defaultOn: false),
         Switch(key: "universalControlWatcher", title: "Universal Control Watcher", feature: watcher, defaultOn: true),
     ]
 
