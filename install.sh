@@ -31,8 +31,9 @@ if ! security find-identity -p codesigning "$keychain" | grep -q "\"$identity\""
 fi
 
 echo "Building Gremlin..."
-mkdir -p "$build/Gremlin.app/Contents/MacOS"
+mkdir -p "$build/Gremlin.app/Contents/MacOS" "$build/Gremlin.app/Contents/Resources"
 cp "$src/Info.plist" "$build/Gremlin.app/Contents/Info.plist"
+cp "$src/AppIcon.icns" "$build/Gremlin.app/Contents/Resources/AppIcon.icns"
 xcrun swiftc -O "$src"/*.swift -o "$build/Gremlin.app/Contents/MacOS/gremlin"
 codesign --force --keychain "$keychain" --sign "$identity" "$build/Gremlin.app"
 
