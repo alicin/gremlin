@@ -1,12 +1,16 @@
-# Gremlin
-
-A small menu bar app that fixes the everyday kinks of macOS: lost window focus, a stuck Dock or Notification Center, Universal Control that won't reconnect. It also grabs text and colors off the screen.
-
 <p align="center">
-  <img src="docs/menu.png" width="412" alt="The Gremlin menu">
+  <img src="icon/AppIcon.png" width="128" alt="Gremlin's icon, a holographic paw sticker">
 </p>
 
-It's a handful of Swift files with no dependencies, built from the command line. It runs as you and never asks for an admin password.
+# Gremlin
+
+A small menu bar app that fixes the everyday kinks of macOS: lost window focus, a stuck Dock or Notification Center, Universal Control that won't reconnect. It also grabs text and colors off the screen, and records meetings with a transcript.
+
+<p align="center">
+  <img src="docs/menu.png" width="434" alt="The Gremlin menu">
+</p>
+
+It's a handful of Swift files built from the command line. It needs nothing else, except Homebrew's whisper.cpp and ffmpeg for meeting transcripts. It runs as you and never asks for an admin password.
 
 ## Features
 
@@ -30,7 +34,7 @@ macOS sometimes ends up with the menu bar showing one app while your typing goes
 ### Unstick macOS
 
 <p align="center">
-  <img src="docs/restart.png" width="558" alt="The Restart submenu">
+  <img src="docs/restart.png" width="580" alt="The Restart submenu">
 </p>
 
 When part of macOS hangs, restarting just that part usually fixes it, without logging out. **Restart** does it from the menu, one at a time or all at once:
@@ -54,7 +58,7 @@ All of these run as you, and macOS starts them again right away.
 ### Keep Awake
 
 <p align="center">
-  <img src="docs/keep-awake.png" width="619" alt="The Keep Awake submenu">
+  <img src="docs/keep-awake.png" width="894" alt="The Keep Awake submenu">
 </p>
 
 Keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off. The menu shows when it ends, and lists any other app that is keeping the Mac awake. It survives a Gremlin restart until its time is up.
@@ -71,10 +75,22 @@ It uses the same private SidecarCore calls as the Displays menu in Control Cente
 
 | Feature | What it does |
 | --- | --- |
-| **Record Meeting** `⌃⌥⌘R` | Records the screen the pointer is on, with all sound and your mic, until you press it again. The menu bar icon turns into a record button while it runs. |
+| **Record Meeting** `⌃⌥⌘R` | Records the screen the pointer is on, with all sound and your mic, until you press it again. While it runs, the menu bar shows a red record button and how long it has been going. |
 | **Show Recordings** | Opens `~/Movies/Meetings`. |
 
-Recording only starts and stops when you ask. If it can't start or fails, Gremlin says so in a dialog and in its menu, since its notifications may be turned off.
+<p align="center">
+  <img src="docs/recording.png" width="434" alt="The menu while recording, with the red record button and timer in the menu bar">
+</p>
+
+When a browser or a meeting app (Zoom, Teams, Webex, Slack, FaceTime) has used the mic for 5 seconds, a panel under the menu bar asks whether to record the call. **Record** records the screen the call's window is on. **Not now** leaves that call alone until the app lets go of the mic. The panel shows over full-screen apps and appears even with notifications or a Focus turned off. When a recorded call goes quiet, meaning its app has stopped using both the mic and the speakers for 8 seconds, the panel counts down 15 seconds before stopping, with **Stop now** and **Keep recording**. Nothing is ever recorded without you asking.
+
+<p align="center">
+  <img src="docs/call-panel.png" width="472" alt="The panels offering to record a call and counting down after it ends">
+</p>
+
+While recording, the menu shows whether your mic and the other sound are coming through. A warning pops up if the mic sends nothing, or only silence for the first 90 seconds, or if the file stops growing, and the recording is written in 10-second fragments, so a crash or a power cut loses at most the last few seconds. If it can't start or fails, Gremlin says so in a dialog and in its menu.
+
+With calendar access, a recording is named after the event it happened during, and the transcript and summary list who was invited.
 
 Each recording gets a folder such as `2026-10-15 14.30 Meeting`, which opens in Finder when you stop recording. The transcript shows up in it a few seconds later:
 
@@ -108,6 +124,12 @@ git clone https://github.com/alicin/gremlin.git
 
 This builds `~/Applications/Gremlin.app`, signs it, starts it, and adds it as a login item. Run `install.sh` again after pulling changes.
 
+For meeting transcripts and the compressed video, also install whisper.cpp and ffmpeg:
+
+```sh
+brew install whisper-cpp ffmpeg
+```
+
 The app is signed with a self-signed "Gremlin Code Signing" certificate that the installer creates in your login keychain the first time. macOS ties permissions to that certificate, so they survive rebuilds. The first build may ask to let `codesign` use the key; choose Always Allow.
 
 ### Permissions
@@ -120,7 +142,8 @@ macOS asks for each permission the first time a feature needs it:
 | Microphone | Recording your side of a meeting |
 | Accessibility | Auto-Fix Lost Focus, and the paste step of Paste as Plain Text (without it, the clipboard is still made plain and you press `⌘V`) |
 | Local Network | Pairing with another Mac |
-| Notifications | Universal Control reset results, meeting recordings |
+| Notifications | Universal Control reset results, finished transcripts |
+| Calendars | Naming meeting recordings after the event |
 
 The hotkeys use Carbon hotkeys, so they need no permission. Switches (the checkmark items) are remembered between launches. Everything is logged to `~/Library/Logs/Gremlin.log`.
 
