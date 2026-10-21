@@ -76,7 +76,7 @@ It uses the same private SidecarCore calls as the Displays menu in Control Cente
 
 Recording only starts and stops when you ask. If it can't start or fails, Gremlin says so in a dialog and in its menu, since its notifications may be turned off.
 
-Each recording gets a folder such as `2026-10-15 14.30 Meeting`:
+Each recording gets a folder such as `2026-10-15 14.30 Meeting`, which opens in Finder when you stop recording. The transcript shows up in it a few seconds later:
 
 - `transcript.md`: written on the Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`), labelled **Me** (your mic) and **Them** (the call). whisper detects the language, Turkish and English included. Without headphones your mic also hears the call, and those duplicate lines are dropped. If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items in English at the top, using your Claude login rather than an API key.
 - `recording.mp4`: the screen's video, compressed with [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) using x265 at CRF 26, with the call and your mic mixed into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call should take roughly 15 minutes to compress on an M5.

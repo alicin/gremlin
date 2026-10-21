@@ -127,6 +127,7 @@ final class Meetings: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         Log.write("Meeting recording: saved \(recording.folder.lastPathComponent)")
         notes.process(recording.folder)
         onChange?()
+        if onFinish.isEmpty { NSWorkspace.shared.open(recording.folder) }
         onFinish.forEach { $0() }
         onFinish = []
     }
