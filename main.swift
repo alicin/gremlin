@@ -33,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var tick: Timer?
+    private var menu: NSMenu!
+    private var clickStops = false
     private var switchItems: [NSMenuItem] = []
     private let sidecarItem = NSMenuItem(title: "", action: #selector(toggleSidecar), keyEquivalent: "s")
     private let recordItem = NSMenuItem(title: "", action: #selector(toggleRecording), keyEquivalent: "r")
@@ -83,7 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.feature.start()
         }
 
-        statusItem.menu = buildMenu()
+        menu = buildMenu()
+        statusItem.menu = menu
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         refresh()
     }
 
@@ -97,6 +103,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switches.forEach { $0.feature.stop() }
         meetings.notes.stop()
         keepAwake.stop()
+    }
+
+    // While recording, a click on the record button stops it, and a right-click or Control-click opens the menu.
+    @objc private func statusClicked() {
+        guard let event = NSApp.currentEvent, event.type == .rightMouseUp || event.modifierFlags.contains(.control) else {
+            return meetings.toggle()
+        }
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if clickStops, menu === self.menu { statusItem.menu = nil }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -226,6 +245,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if meetings.recording == nil {
             tick?.invalidate()
             tick = nil
+        }
+        if (meetings.recording != nil) != clickStops {
+            clickStops = meetings.recording != nil
+            statusItem.menu = clickStops ? nil : menu
+            statusItem.button?.toolTip = clickStops ? "Click to stop recording, right-click for the menu" : nil
         }
         sidecarItem.isEnabled = sidecar.canToggle
         keepAwakeItem.title = keepAwake.title

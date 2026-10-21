@@ -75,7 +75,7 @@ It uses the same private SidecarCore calls as the Displays menu in Control Cente
 
 | Feature | What it does |
 | --- | --- |
-| **Record Meeting** `⌃⌥⌘R` | Records the screen the pointer is on, with all sound and your mic, until you press it again. While it runs, the menu bar shows a red record button and how long it has been going. |
+| **Record Meeting** `⌃⌥⌘R` | Records the screen the pointer is on, with all sound and your mic, until you press it again. While it runs, the menu bar shows a red record button and how long it has been going. Click that button to stop, or right-click it for the menu. |
 | **Show Recordings** | Opens `~/Movies/Meetings`. |
 
 <p align="center">
