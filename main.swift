@@ -31,7 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Switch(key: "universalControlWatcher", title: "Universal Control Watcher", feature: watcher, defaultOn: true),
     ]
 
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private var tick: Timer?
     private var switchItems: [NSMenuItem] = []
     private let sidecarItem = NSMenuItem(title: "", action: #selector(toggleSidecar), keyEquivalent: "s")
     private let recordItem = NSMenuItem(title: "", action: #selector(toggleRecording), keyEquivalent: "r")
@@ -215,10 +216,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recordItem.title = meetings.recording == nil ? "Record Meeting" : "Stop Recording"
         meetingStatusItem.title = meetings.statusText ?? ""
         meetingStatusItem.isHidden = meetings.statusText == nil
-        let image = NSImage(systemSymbolName: meetings.recording == nil ? "pawprint.fill" : "record.circle",
-                            accessibilityDescription: "Gremlin")
-        image?.isTemplate = true
-        statusItem.button?.image = image
+        updateStatusButton()
+        if meetings.recording != nil, tick == nil {
+            let tick = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateStatusButton() }
+            }
+            RunLoop.main.add(tick, forMode: .common)
+            self.tick = tick
+        } else if meetings.recording == nil {
+            tick?.invalidate()
+            tick = nil
+        }
         sidecarItem.isEnabled = sidecar.canToggle
         keepAwakeItem.title = keepAwake.title
         for item in keepAwakeItem.submenu?.items ?? [] where item.action == #selector(setKeepAwake) {
@@ -252,6 +260,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             pairItem.title = link.isPairing ? "Cancel Pairing" : "Pair Another Mac…"
         }
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
+    // Shows how long the recording has run next to a red record button, so it's clear at a glance that it's going.
+    private func updateStatusButton() {
+        guard let button = statusItem.button else { return }
+        let recording = meetings.recording
+        var image = NSImage(systemSymbolName: recording == nil ? "pawprint.fill" : "record.circle.fill", accessibilityDescription: "Gremlin")
+        // The menu bar ignores a tint color, so the record button is drawn in color instead of as a template.
+        if recording != nil { image = image?.withSymbolConfiguration(.init(paletteColors: [.white, .systemRed])) }
+        image?.isTemplate = recording == nil
+        button.image = image
+        button.imagePosition = recording == nil ? .imageOnly : .imageLeading
+        button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        button.title = recording.map { " " + Meetings.elapsed(since: $0.started) } ?? ""
     }
 
     @objc private func grabText() {

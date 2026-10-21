@@ -26,6 +26,8 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Gremlin records your side of the meetings it records.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Gremlin names meeting recordings after your calendar event and lists who was invited.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Gremlin talks to Gremlin on your other Mac to fix Universal Control.</string>
 </dict>

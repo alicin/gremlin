@@ -10,6 +10,7 @@ final class MeetingNotes {
     static let recording = "recording.mov"
     static let compressed = "recording.mp4"
     static let transcript = "transcript.md"
+    static let event = "event.json"
 
     private struct Segment {
         let speaker: String
@@ -97,12 +98,14 @@ final class MeetingNotes {
             let started = Date()
             do {
                 let segments = try await transcribe(video, name: name)
-                let body = try await Self.markdown(name: name, video: video, segments: segments)
+                let event = (try? Data(contentsOf: folder.appendingPathComponent(Self.event)))
+                    .flatMap { try? JSONDecoder().decode(MeetingCalendar.Event.self, from: $0) }
+                let body = try await Self.markdown(name: name, video: video, segments: segments, event: event)
                 try body.write(to: transcript, atomically: true, encoding: .utf8)
                 Log.write("Meeting \(name): transcribed \(segments.count) passages in \(Int(Date().timeIntervalSince(started)))s")
                 if !segments.isEmpty, let claude = Self.claude {
                     setStatus("Summarizing \(name)…")
-                    if let summary = await summarize(transcript, claude: claude) {
+                    if let summary = await summarize(transcript, claude: claude, event: event) {
                         let marker = "## Transcript"
                         try body.replacingOccurrences(of: marker, with: "## Summary\n\n\(summary)\n\n\(marker)")
                             .write(to: transcript, atomically: true, encoding: .utf8)
@@ -288,9 +291,11 @@ final class MeetingNotes {
         text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
     }
 
-    private static func markdown(name: String, video: URL, segments: [Segment]) async throws -> String {
+    private static func markdown(name: String, video: URL, segments: [Segment], event: MeetingCalendar.Event?) async throws -> String {
         let minutes = max(1, Int((try await AVURLAsset(url: video).load(.duration).seconds / 60).rounded()))
-        var lines = ["# \(name)", "", "\(minutes) minute\(minutes == 1 ? "" : "s") · [recording](\(Self.recording))", "", "## Transcript", ""]
+        var lines = ["# \(name)", "", "\(minutes) minute\(minutes == 1 ? "" : "s") · [recording](\(Self.recording))", ""]
+        if let event, !event.attendees.isEmpty { lines += ["With " + ListFormatter.localizedString(byJoining: event.attendees), ""] }
+        lines += ["## Transcript", ""]
         if segments.isEmpty { lines.append("Nobody said anything the transcriber could pick up.") }
         for segment in segments {
             lines += ["**\(segment.speaker)** · \(timestamp(segment.start))  ", segment.text, ""]
@@ -313,8 +318,14 @@ final class MeetingNotes {
         markdown only, no preamble.
         """
 
-    private func summarize(_ transcript: URL, claude: URL) async -> String? {
-        let result = await run(claude, ["-p", Self.summaryPrompt, "--tools", "", "--no-session-persistence"],
+    private func summarize(_ transcript: URL, claude: URL, event: MeetingCalendar.Event?) async -> String? {
+        var prompt = Self.summaryPrompt
+        if let event {
+            prompt += " The calendar event was \"\(event.title)\""
+            prompt += event.attendees.isEmpty ? "." : ", with " + ListFormatter.localizedString(byJoining: event.attendees)
+                + ". Them is one or more of these people; name them where the transcript makes it clear who is speaking."
+        }
+        let result = await run(claude, ["-p", prompt, "--tools", "", "--no-session-persistence"],
                                input: transcript, directory: transcript.deletingLastPathComponent(), timeout: 600)
         let summary = String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard result.status == 0, !summary.isEmpty else {
