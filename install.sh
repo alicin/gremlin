@@ -4,10 +4,18 @@ set -euo pipefail
 [[ "$(uname -s)" == Darwin ]] || exit 0
 
 src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-app="$HOME/Applications/Gremlin.app"
+app="/Applications/Gremlin.app"
+# Where install.sh used to put it.
+old_app="$HOME/Applications/Gremlin.app"
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 identity="Gremlin Code Signing"
 keychain="$HOME/Library/Keychains/login.keychain-db"
 domain="gui/$(id -u)"
+
+if [[ ! -w /Applications ]]; then
+    echo "gremlin: can't write to /Applications, install from an admin account" >&2
+    exit 1
+fi
 
 if ! xcrun --find swiftc >/dev/null 2>&1; then
     echo "gremlin: swiftc not found, run xcode-select --install" >&2
@@ -48,9 +56,14 @@ fi
 echo "Installing to ${app/#$HOME/~}..."
 pkill -x gremlin 2>/dev/null || true
 while pgrep -x gremlin >/dev/null; do sleep 0.2; done
-mkdir -p "$(dirname "$app")"
 rm -rf "$app"
 mv "$build/Gremlin.app" "$app"
+if [[ -e "$old_app" ]]; then
+    "$lsregister" -u "$old_app" 2>/dev/null || true
+    rm -rf "$old_app"
+fi
+# Notifications and the Dock look the icon up by bundle ID, so the copy here is the one Launch Services should know.
+"$lsregister" -f "$app"
 open "$app"
 
 echo "Gremlin is running in the menu bar"

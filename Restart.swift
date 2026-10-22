@@ -2,17 +2,27 @@ import AppKit
 
 // All of these run as the user and launchd starts them again, so killall is a restart.
 enum Restart {
-    static let items: [(title: String, processes: [String])] = [
-        ("Dock", ["Dock"]),
-        ("Finder", ["Finder"]),
-        ("Menu Bar", ["SystemUIServer"]),
-        ("Control Center", ["ControlCenter"]),
-        ("Notification Center", ["NotificationCenter"]),
-        ("Window Manager", ["WindowManager"]),
-        ("Clipboard", ["pboard"]),
+    struct Item {
+        let title: String
+        let short: String
+        let hint: String
+        let symbol: String
+        let processes: [String]
+    }
+
+    static let items = [
+        Item(title: "Dock", short: "Dock", hint: "Mission Control stuck", symbol: "dock.rectangle", processes: ["Dock"]),
+        Item(title: "Finder", short: "Finder", hint: "Windows frozen", symbol: "finder", processes: ["Finder"]),
+        Item(title: "Menu Bar", short: "Menu Bar", hint: "Items missing or frozen", symbol: "menubar.rectangle", processes: ["SystemUIServer"]),
+        Item(title: "Control Center", short: "Control", hint: "Its icons misbehave", symbol: "switch.2", processes: ["ControlCenter"]),
+        Item(title: "Notification Center", short: "Alerts", hint: "Banners frozen", symbol: "bell", processes: ["NotificationCenter"]),
+        Item(title: "Window Manager", short: "Windows", hint: "Stage Manager stuck", symbol: "macwindow.on.rectangle",
+             processes: ["WindowManager"]),
+        Item(title: "Clipboard", short: "Clipboard", hint: "Paste broken · empties it", symbol: "clipboard", processes: ["pboard"]),
         // Universal Clipboard only recovers when useractivityd goes first.
-        ("Universal Clipboard", ["useractivityd", "pboard"]),
-        ("iCloud Drive", ["bird"]),
+        Item(title: "Universal Clipboard", short: "Handoff", hint: "Pasting across devices", symbol: "laptopcomputer.and.iphone",
+             processes: ["useractivityd", "pboard"]),
+        Item(title: "iCloud Drive", short: "iCloud", hint: "Sync stopped", symbol: "icloud", processes: ["bird"]),
     ]
 
     static var all: [String] {

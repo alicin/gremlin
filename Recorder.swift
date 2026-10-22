@@ -3,7 +3,7 @@ import AVFoundation
 import ScreenCaptureKit
 
 // Writes a capture to a QuickTime movie in 10 second fragments, so a crash or a power cut loses at most the last few
-// seconds: the screen's video, then system audio and the mic on separate tracks.
+// seconds: the screen's video unless it's audio only, then system audio and the mic on separate tracks.
 final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
     struct Health {
         var frames = 0
@@ -15,7 +15,7 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
 
     let queue = DispatchQueue(label: "com.bunniesinc.gremlin.recorder")
     private let writer: AVAssetWriter
-    private let video: AVAssetWriterInput
+    private let video: AVAssetWriterInput?
     private let sound: AVAssetWriterInput
     private let mic: AVAssetWriterInput
     private let soundAudio = Normalizer(channels: 2)
@@ -25,20 +25,22 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
     private var last = CMTime.zero
     private var health = Health()
 
-    init(url: URL, width: Int, height: Int) throws {
+    init(url: URL, video size: (width: Int, height: Int)?) throws {
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         writer.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 600)
-        video = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.hevc, AVVideoWidthKey: width, AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: 5_000_000, AVVideoExpectedSourceFrameRateKey: 15,
-                AVVideoMaxKeyFrameIntervalKey: 30, AVVideoAllowFrameReorderingKey: false,
-            ],
-        ])
+        video = size.map { size in
+            AVAssetWriterInput(mediaType: .video, outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.hevc, AVVideoWidthKey: size.width, AVVideoHeightKey: size.height,
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoAverageBitRateKey: 5_000_000, AVVideoExpectedSourceFrameRateKey: 15,
+                    AVVideoMaxKeyFrameIntervalKey: 30, AVVideoAllowFrameReorderingKey: false,
+                ],
+            ])
+        }
         sound = AVAssetWriterInput(mediaType: .audio, outputSettings: Self.aac(channels: 2))
         mic = AVAssetWriterInput(mediaType: .audio, outputSettings: Self.aac(channels: 1))
         super.init()
-        for input in [video, sound, mic] {
+        for input in [video, sound, mic].compactMap(\.self) {
             input.expectsMediaDataInRealTime = true
             writer.add(input)
         }
@@ -66,30 +68,36 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
             if writer.status == .failed, health.error == nil { health.error = writer.error ?? CocoaError(.fileWriteUnknown) }
             return
         }
+        // A recording with video starts at its first frame; audio before that has nothing to go with.
         switch type {
         case .screen:
-            guard Self.isComplete(buffer) else { return }
-            if !started {
-                writer.startSession(atSourceTime: buffer.presentationTimeStamp)
-                started = true
-            }
+            guard let video, Self.isComplete(buffer) else { return }
+            startSession(at: buffer.presentationTimeStamp)
             if video.isReadyForMoreMediaData, video.append(buffer) {
                 health.frames += 1
                 last = max(last, buffer.presentationTimeStamp)
             }
         case .audio:
-            guard started, let converted = soundAudio.convert(buffer) else { return }
+            guard started || video == nil, let converted = soundAudio.convert(buffer) else { return }
+            startSession(at: converted.buffer.presentationTimeStamp)
             health.soundPeak = max(health.soundPeak, converted.peak)
             if sound.isReadyForMoreMediaData, sound.append(converted.buffer) { last = max(last, converted.end) }
         case .microphone:
-            guard started else { return }
+            guard started || video == nil else { return }
             health.micBuffers += 1
             guard let converted = micAudio.convert(buffer) else { return }
+            startSession(at: converted.buffer.presentationTimeStamp)
             health.micPeak = max(health.micPeak, converted.peak)
             if mic.isReadyForMoreMediaData, mic.append(converted.buffer) { last = max(last, converted.end) }
         @unknown default:
             break
         }
+    }
+
+    private func startSession(at time: CMTime) {
+        guard !started else { return }
+        writer.startSession(atSourceTime: time)
+        started = true
     }
 
     // ScreenCaptureKit sends status-only buffers while nothing on screen changes.
@@ -108,7 +116,7 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
                 writer.cancelWriting()
                 return done(false, nil)
             }
-            [video, sound, mic].forEach { $0.markAsFinished() }
+            [video, sound, mic].compactMap(\.self).forEach { $0.markAsFinished() }
             writer.endSession(atSourceTime: last)
             writer.finishWriting { [self] in done(true, writer.status == .completed ? nil : writer.error) }
         }
@@ -150,23 +158,43 @@ final class Normalizer {
         }
         guard error == nil, output.frameLength > 0, let samples = output.floatChannelData?[0] else { return nil }
 
-        // Timestamps count samples from where the audio started, so resampling never leaves gaps or overlaps. They
-        // only jump ahead when the source skips, e.g. while the mic switches devices.
+        // Timestamps count samples from where the audio started, so resampling never leaves gaps or overlaps. When
+        // the source skips, e.g. while the mic switches devices, the gap is filled with silence: the writer packs
+        // audio back to back, so a gap left open would put this track ahead of the other one from then on.
         let start = buffer.presentationTimeStamp
-        if next == nil || start - next! > CMTime(seconds: 0.25, preferredTimescale: 48000) { next = start }
+        var audio = output
+        if let last = next, start - last > CMTime(seconds: 0.25, preferredTimescale: 48000) {
+            let gap = (start - last).seconds
+            if gap > 60 {
+                next = start
+            } else if let padded = Self.padded(output, silence: AVAudioFrameCount((gap * format.sampleRate).rounded())) {
+                audio = padded
+            }
+        }
+        if next == nil { next = start }
         var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 48000), presentationTimeStamp: next!,
                                         decodeTimeStamp: .invalid)
         var sample: CMSampleBuffer?
         guard CMSampleBufferCreate(allocator: nil, dataBuffer: nil, dataReady: false, makeDataReadyCallback: nil, refcon: nil,
-                                   formatDescription: format.formatDescription, sampleCount: CMItemCount(output.frameLength),
+                                   formatDescription: format.formatDescription, sampleCount: CMItemCount(audio.frameLength),
                                    sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 0,
                                    sampleSizeArray: nil, sampleBufferOut: &sample) == noErr, let sample,
               CMSampleBufferSetDataBufferFromAudioBufferList(sample, blockBufferAllocator: nil, blockBufferMemoryAllocator: nil,
-                                                             flags: 0, bufferList: output.audioBufferList) == noErr
+                                                             flags: 0, bufferList: audio.audioBufferList) == noErr
         else { return nil }
-        next = next! + CMTime(value: CMTimeValue(output.frameLength), timescale: 48000)
+        next = next! + CMTime(value: CMTimeValue(audio.frameLength), timescale: 48000)
         var peak: Float = 0
         vDSP_maxmgv(samples, 1, &peak, vDSP_Length(output.frameLength * format.channelCount))
         return (sample, peak, next!)
+    }
+
+    private static func padded(_ buffer: AVAudioPCMBuffer, silence: AVAudioFrameCount) -> AVAudioPCMBuffer? {
+        guard let padded = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: silence + buffer.frameLength),
+              let target = padded.floatChannelData?[0], let source = buffer.floatChannelData?[0] else { return nil }
+        let channels = Int(buffer.format.channelCount)
+        padded.frameLength = silence + buffer.frameLength
+        target.update(repeating: 0, count: Int(silence) * channels)
+        (target + Int(silence) * channels).update(from: source, count: Int(buffer.frameLength) * channels)
+        return padded
     }
 }

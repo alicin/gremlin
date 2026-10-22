@@ -18,14 +18,17 @@ final class Sidecar {
         return selectors.allSatisfy { manager.responds(to: NSSelectorFromString($0)) } ? manager : nil
     }
 
+    struct Status {
+        let name: String
+        let connected: Bool
+        let busy: Bool
+    }
+
     var isAvailable: Bool { manager != nil }
 
-    var canToggle: Bool { pending == nil && target != nil }
-
-    var title: String {
-        if let pending { return pending }
-        guard let target else { return "Use iPad as Display" }
-        return target.connected ? "Disconnect \(Self.name(target.device))" : "Use \(Self.name(target.device)) as Display"
+    // The iPad the toggle acts on, or nil when none is nearby.
+    var status: Status? {
+        target.map { Status(name: Self.name($0.device), connected: $0.connected, busy: pending != nil) }
     }
 
     // An iPad already showing this Mac, otherwise the first one nearby. Connecting takes it over from another Mac.

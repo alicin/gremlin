@@ -4,13 +4,20 @@ import CoreAudio
 import ScreenCaptureKit
 
 // Records a screen to ~/Movies/Meetings: its video, all system audio and the microphone, the last two on separate
-// tracks so the transcript can tell Me from Them. When a browser or meeting app starts using the mic, a prompt offers
+// tracks so the transcript can tell Me from Them. An audio-only recording keeps just the two audio tracks. When a browser or meeting app starts using the mic, a prompt offers
 // to record it, and when that call goes quiet, it offers to stop.
 @MainActor
 final class Meetings: NSObject, SCStreamDelegate {
     struct Recording {
         let folder: URL
         let started: Date
+        let audioOnly: Bool
+    }
+
+    struct Problem {
+        let title: String
+        let message: String
+        var fix: URL?
     }
 
     struct AudioUse {
@@ -26,10 +33,10 @@ final class Meetings: NSObject, SCStreamDelegate {
     var onChange: (() -> Void)?
     let notes = MeetingNotes()
     private(set) var recording: Recording?
+    private(set) var starting = false
+    private(set) var problem: Problem?
     private var stream: SCStream?
     private var recorder: Recorder?
-    private var starting = false
-    private var lastError: String?
     private var onFinish: [() -> Void] = []
 
     private let prompt = Prompt()
@@ -59,13 +66,8 @@ final class Meetings: NSObject, SCStreamDelegate {
         self.timer = timer
     }
 
-    var statusText: String? {
-        if let recording {
-            return "Recording · \(Self.elapsed(since: recording.started))   mic \(levels.mic > Self.signal ? "●" : "○")"
-                + "   sound \(levels.sound > Self.signal ? "●" : "○")"
-        }
-        return notes.status ?? lastError
-    }
+    // Whether the last few seconds of the recording had any sound in them.
+    var hearing: Bool { levels.mic > Self.signal || levels.sound > Self.signal }
 
     static func elapsed(since date: Date) -> String {
         let total = Int(Date().timeIntervalSince(date))
@@ -73,9 +75,14 @@ final class Meetings: NSObject, SCStreamDelegate {
             : String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
     }
 
-    func toggle() {
+    func toggle(audioOnly: Bool = false) {
         if recording != nil { return finishCapture("stopped by hand") }
-        begin(call: Set(Self.callers(Self.audioUse()).filter { $0.value.input }.keys), window: nil)
+        begin(call: Set(Self.callers(Self.audioUse()).filter { $0.value.input }.keys), window: nil, audioOnly: audioOnly)
+    }
+
+    func dismissProblem() {
+        problem = nil
+        onChange?()
     }
 
     // Lets a quit wait until the recording is written out.
@@ -94,14 +101,16 @@ final class Meetings: NSObject, SCStreamDelegate {
         for pid in talking where talkingSince[pid] == nil { talkingSince[pid] = Date() }
         declined.formIntersection(talking)
         if recording != nil {
+            let wasHearing = hearing
             checkHealth()
+            if hearing != wasHearing { onChange?() }
             return watchForEnd(callers, talking)
         }
         if prompt.topic == "offer", offered.isDisjoint(with: talking) {
             prompt.hide("offer")
             offered = []
         }
-        guard !starting, prompt.topic == nil,
+        guard !starting, prompt.topic == nil, UserDefaults.standard.bool(forKey: AppSwitch.offerToRecordCalls),
               let pid = talking.first(where: { !declined.contains($0) && Date().timeIntervalSince(talkingSince[$0]!) >= 5 }),
               let bundle = callers[pid]?.bundle
         else { return }
@@ -115,11 +124,15 @@ final class Meetings: NSObject, SCStreamDelegate {
         let name = app?.localizedName ?? "An app"
         offered = call
         let window = app.flatMap { Self.window(of: $0.processIdentifier) }
-        prompt.show("offer", icon: app?.icon, title: "\(name) is on a call", message: "Record the screen and both sides of the call?",
+        prompt.show("offer", icon: .app(app?.icon), title: "\(name) is on a call", message: "Record the screen and both sides of the call?",
                     actions: [
                         .init(title: "Record") { [weak self] in
                             self?.offered = []
-                            self?.begin(call: call, window: app.flatMap { Self.window(of: $0.processIdentifier) })
+                            self?.begin(call: call, window: app.flatMap { Self.window(of: $0.processIdentifier) }, audioOnly: false)
+                        },
+                        .init(title: "Audio Only") { [weak self] in
+                            self?.offered = []
+                            self?.begin(call: call, window: nil, audioOnly: true)
                         },
                         .init(title: "Not now") { [weak self] in
                             self?.declined.formUnion(call)
@@ -152,7 +165,7 @@ final class Meetings: NSObject, SCStreamDelegate {
     private func offerToStop() {
         var left = 15
         func message() -> String { "Stopping the recording in \(left) s." }
-        prompt.show("ended", icon: nil, title: "The call seems to be over", message: message(), actions: [
+        prompt.show("ended", icon: .app(nil), title: "The call seems to be over", message: message(), actions: [
             .init(title: "Stop now") { [weak self] in self?.finishCapture("the call ended") },
             .init(title: "Keep recording") { [weak self] in
                 self?.countdown?.invalidate()
@@ -206,28 +219,28 @@ final class Meetings: NSObject, SCStreamDelegate {
     private func warn(_ key: String, _ title: String, _ message: String) {
         guard !warned.contains(key) else { return }
         warned.insert(key)
-        lastError = title
+        problem = Problem(title: title, message: message)
         Log.write("Meeting recording: \(title). \(message)")
         onChange?()
         guard prompt.topic != "ended" else { return }
-        prompt.show("warning", icon: NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil),
+        prompt.show("warning", icon: .symbol(key == "silent mic" || key == "no mic" ? "mic.slash.fill" : "exclamationmark.triangle.fill"),
                     title: title, message: message, actions: [.init(title: "OK") {}], on: nil)
     }
 
     // MARK: Recording
 
-    private func begin(call: Set<pid_t>, window: CGRect?) {
+    private func begin(call: Set<pid_t>, window: CGRect?, audioOnly: Bool) {
         guard recording == nil, !starting else { return }
         starting = true
         prompt.hide("offer")
         MeetingCalendar.requestAccess()
         onChange?()
         AVCaptureDevice.requestAccess(for: .audio) { _ in
-            Task { @MainActor in await self.start(call: call, window: window) }
+            Task { @MainActor in await self.start(call: call, window: window, audioOnly: audioOnly) }
         }
     }
 
-    private func start(call: Set<pid_t>, window: CGRect?) async {
+    private func start(call: Set<pid_t>, window: CGRect?, audioOnly: Bool) async {
         var folder: URL?
         defer {
             starting = false
@@ -245,6 +258,12 @@ final class Meetings: NSObject, SCStreamDelegate {
             config.width = Int(CGFloat(display.width) * shrink) & ~1
             config.height = Int(CGFloat(display.height) * shrink) & ~1
             config.minimumFrameInterval = CMTime(value: 1, timescale: 15)
+            // ScreenCaptureKit only captures audio alongside a display, so audio-only asks for a tiny one rarely.
+            if audioOnly {
+                config.width = 64
+                config.height = 64
+                config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+            }
             config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             config.scalesToFit = true
             config.capturesAudio = true
@@ -254,8 +273,8 @@ final class Meetings: NSObject, SCStreamDelegate {
             let target = Self.newFolder(at: Date(), "Meeting")
             try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
             folder = target
-            let recorder = try Recorder(url: target.appendingPathComponent(MeetingNotes.recording), width: config.width,
-                                        height: config.height)
+            let recorder = try Recorder(url: target.appendingPathComponent(MeetingNotes.recording),
+                                        video: audioOnly ? nil : (config.width, config.height))
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
             for type in [SCStreamOutputType.screen, .audio, .microphone] {
                 try stream.addStreamOutput(recorder, type: type, sampleHandlerQueue: recorder.queue)
@@ -271,13 +290,19 @@ final class Meetings: NSObject, SCStreamDelegate {
             size = 0
             grewAt = Date()
             warned = []
-            lastError = nil
-            recording = Recording(folder: target, started: Date())
-            Log.write("Meeting recording: display \(display.displayID) at \(config.width)x\(config.height), call \(call.sorted())")
+            problem = nil
+            recording = Recording(folder: target, started: Date(), audioOnly: audioOnly)
+            Log.write("Meeting recording: " + (audioOnly ? "audio only" : "display \(display.displayID) at \(config.width)x\(config.height)")
+                      + ", call \(call.sorted())")
         } catch {
             if let folder { try? FileManager.default.removeItem(at: folder) }
             Log.write("Meeting recording: couldn't start: \(error.localizedDescription)")
-            alert("Couldn't start recording", error.localizedDescription)
+            if CGPreflightScreenCaptureAccess() {
+                alert(Problem(title: "Couldn't start recording", message: error.localizedDescription))
+            } else {
+                alert(Problem(title: "Couldn't start recording", message: "Screen Recording is off for Gremlin",
+                              fix: URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")))
+            }
         }
     }
 
@@ -290,14 +315,17 @@ final class Meetings: NSObject, SCStreamDelegate {
         declined.formUnion(Self.callers(Self.audioUse()).filter { $0.value.input }.keys)
         Log.write("Meeting recording: stopping, \(reason)")
         onChange?()
-        let folder = recording?.folder
+        // Both endings check the recorder, not the folder: a new recording can reuse the folder name within a minute.
         Task {
             try? await stream.stopCapture()
             recorder.finish { recorded, error in
-                Task { @MainActor in self.finished(recorded: recorded, error: error) }
+                Task { @MainActor in
+                    guard self.recorder === recorder else { return }
+                    self.finished(recorded: recorded, error: error)
+                }
             }
             try? await Task.sleep(for: .seconds(30))
-            guard recording?.folder == folder else { return }
+            guard self.recorder === recorder else { return }
             Log.write("Meeting recording: the file never finished writing; it's kept up to its last fragment")
             finished(recorded: true, error: nil)
         }
@@ -317,7 +345,8 @@ final class Meetings: NSObject, SCStreamDelegate {
         if let error { Log.write("Meeting recording: finishing the file failed, it's kept up to its last fragment: \(error.localizedDescription)") }
         guard recorded else {
             try? FileManager.default.trashItem(at: recording.folder, resultingItemURL: nil)
-            return warn("empty", "Nothing was recorded", "The screen never sent a frame. Try recording again.")
+            return warn("empty", "Nothing was recorded",
+                        recording.audioOnly ? "No sound arrived. Try recording again." : "The screen never sent a frame. Try recording again.")
         }
         var folder = recording.folder
         if let event = MeetingCalendar.event(at: recording.started) {
@@ -454,15 +483,19 @@ final class Meetings: NSObject, SCStreamDelegate {
     }
 
     // Notifications can be turned off for Gremlin, and a recording that didn't happen mustn't go unnoticed.
-    private func alert(_ title: String, _ body: String) {
-        lastError = title
+    private func alert(_ problem: Problem) {
+        self.problem = problem
         onChange?()
         DispatchQueue.main.async {
             NSApp.activate()
             let alert = NSAlert()
-            alert.messageText = title
-            alert.informativeText = body
-            alert.runModal()
+            alert.messageText = problem.title
+            alert.informativeText = problem.message
+            if problem.fix != nil {
+                alert.addButton(withTitle: "Open System Settings")
+                alert.addButton(withTitle: "Cancel")
+            }
+            if alert.runModal() == .alertFirstButtonReturn, let fix = problem.fix { NSWorkspace.shared.open(fix) }
         }
     }
 }

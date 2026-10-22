@@ -34,7 +34,7 @@ final class UniversalControlWatcher: Feature {
 
     private(set) var isRunning = false
     private(set) var phase = Phase.watching
-    private var streamRunning = false
+    private(set) var streamRunning = false
 
     // The error Universal Control logs when the other Mac resets the connection during pairing verification.
     private static let refusedError = "-71143"
@@ -117,6 +117,30 @@ final class UniversalControlWatcher: Feature {
         case .gaveUp(let date): return "Still stuck, trying again at \(Self.time(date, seconds: false))"
         case .peerHandling: return "\(peer) stuck, \(remoteName) is handling it"
         }
+    }
+
+    var detailText: String {
+        guard isRunning else { return "Turn it on to fix Universal Control by itself when a device won't reconnect after sleep." }
+        guard streamRunning else { return "Gremlin lost track of Universal Control's log and is opening it again." }
+        let peer = stuckPeer.map { $0 == link?.paired?.ucID ? remoteName : $0 } ?? "a device"
+        switch phase {
+        case .watching:
+            return "When a device gives up reconnecting after sleep, Gremlin switches Universal Control off and on to bring it back."
+        case .scheduled(_, let target):
+            return "Universal Control gave up on \(peer) after sleep. If the reset \(spaced(target))doesn't bring it back, "
+                + "Gremlin tries again after 1 min, 5 min and then every 30 min."
+        case .resetting(let target):
+            return "Universal Control is off for a few seconds \(spaced(target))then back on. Waiting for the devices to reconnect."
+        case .gaveUp(let date):
+            return "Resets haven't brought \(peer) back. Gremlin tries again at \(Self.time(date, seconds: false))."
+        case .peerHandling:
+            return "\(remoteName) is resetting Universal Control to bring back \(peer)."
+        }
+    }
+
+    private func spaced(_ target: Target) -> String {
+        let place = place(target)
+        return place.isEmpty ? "" : place + " "
     }
 
     var lastResetText: String {

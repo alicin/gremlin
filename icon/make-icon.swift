@@ -22,13 +22,18 @@ func newContext() -> CGContext {
 }
 
 // Apple's icon grid: an 824 px square with continuous corners, centred on the 1024 px canvas. Core Animation draws
-// the same corner curve macOS uses.
-func tile() -> CGImage {
+// the same corner curve macOS uses. With a border, it's just the tile's edge.
+func tile(border: CGColor? = nil) -> CGImage {
     let shape = CALayer()
     shape.frame = CGRect(x: 100, y: 100, width: 824, height: 824)
     shape.cornerRadius = 185.4
     shape.cornerCurve = .continuous
-    shape.backgroundColor = color(0xffffff)
+    if let border {
+        shape.borderColor = border
+        shape.borderWidth = 4
+    } else {
+        shape.backgroundColor = color(0xffffff)
+    }
     let layer = CALayer()
     layer.frame = canvas
     layer.addSublayer(shape)
@@ -82,18 +87,21 @@ func holo(_ context: CGContext, center: CGPoint, _ stops: [UInt32]) {
 
 func render() -> CGImage {
     let context = newContext()
-    let tile = tile()
+    let shape = tile()
     let everywhere: CGGradientDrawingOptions = [.drawsBeforeStartLocation, .drawsAfterEndLocation]
 
     context.saveGState()
     context.setShadow(offset: CGSize(width: 0, height: -10), blur: 24, color: color(0x000000, 0.28))
-    context.draw(tile, in: canvas)
+    context.draw(shape, in: canvas)
     context.restoreGState()
 
     context.saveGState()
-    context.clip(to: canvas, mask: tile)
-    context.drawLinearGradient(gradient([0xe9ecf3, 0xd9dde8]), start: CGPoint(x: 0, y: 924), end: CGPoint(x: 0, y: 100), options: everywhere)
+    context.clip(to: canvas, mask: shape)
+    // Dark indigo, the glass panel's tint, so the sticker's colors stand out.
+    context.drawLinearGradient(gradient([0x2c2554, 0x14102a]), start: CGPoint(x: 0, y: 924), end: CGPoint(x: 0, y: 100), options: everywhere)
     context.restoreGState()
+    // A faint rim keeps the tile's edge visible on a dark Dock.
+    context.draw(tile(border: color(0xffffff, 0.14)), in: canvas)
 
     let sticker = paw(scale: 0.9, tilt: -10, lift: 6)
     let backing = CGMutablePath()

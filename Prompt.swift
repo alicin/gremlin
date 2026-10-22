@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 // A small floating panel under the menu bar. It shows over full-screen apps without taking focus from the call, and
 // unlike a notification it still appears when Gremlin's notifications or a Focus are turned off.
@@ -9,115 +10,95 @@ final class Prompt: NSObject {
         let run: () -> Void
     }
 
-    private final class Panel: NSPanel {
-        override var canBecomeKey: Bool { true }
+    enum Icon {
+        // An app's icon, or Gremlin's.
+        case app(NSImage?)
+        case symbol(String)
     }
 
-    private var panel: Panel?
-    private var message: NSTextField?
-    private var actions: [Action] = []
+    fileprivate final class Message: ObservableObject {
+        @Published var text = ""
+    }
+
+    private var window: GlassWindow?
+    private let message = Message()
     private(set) var topic: String?
 
-    func show(_ topic: String, icon: NSImage?, title: String, message text: String, actions: [Action], on screen: NSScreen?) {
+    func show(_ topic: String, icon: Icon, title: String, message text: String, actions: [Action], on screen: NSScreen?) {
         hide()
         self.topic = topic
-        self.actions = actions
-        let width: CGFloat = 400
-
-        let iconView = NSImageView(image: icon ?? NSApp.applicationIconImage)
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.widthAnchor.constraint(equalToConstant: 40).isActive = true
-        iconView.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        let titleField = NSTextField(labelWithString: title)
-        titleField.font = .systemFont(ofSize: 13, weight: .semibold)
-        let messageField = NSTextField(wrappingLabelWithString: text)
-        messageField.font = .systemFont(ofSize: 12)
-        messageField.textColor = .secondaryLabelColor
-        message = messageField
-        let words = NSStackView(views: [titleField, messageField])
-        words.orientation = .vertical
-        words.alignment = .leading
-        words.spacing = 2
-        words.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let buttons = NSStackView(views: actions.enumerated().map { index, action in
-            let button = NSButton(title: action.title, target: self, action: #selector(clicked))
-            button.tag = index
-            button.bezelStyle = .push
-            if index == 0 { button.keyEquivalent = "\r" }
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 96).isActive = true
-            return button
+        message.text = text
+        let margin = GlassWindow.margin
+        let view = PromptView(icon: icon, title: title, message: message, actions: actions.map { action in
+            Action(title: action.title) { [weak self] in
+                self?.hide()
+                action.run()
+            }
         })
-        buttons.orientation = .vertical
-        buttons.spacing = 4
-        let row = NSStackView(views: [iconView, words, buttons])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 12
-        row.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 12)
-        row.translatesAutoresizingMaskIntoConstraints = false
-
-        let background = NSVisualEffectView()
-        background.material = .popover
-        background.blendingMode = .behindWindow
-        background.state = .active
-        background.maskImage = Self.roundedMask(radius: 16)
-        background.addSubview(row)
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            row.topAnchor.constraint(equalTo: background.topAnchor),
-            row.bottomAnchor.constraint(equalTo: background.bottomAnchor),
-            row.widthAnchor.constraint(equalToConstant: width),
-        ])
-
-        let panel = Panel(contentRect: NSRect(x: 0, y: 0, width: width, height: 80), styleMask: [.nonactivatingPanel, .borderless],
-                          backing: .buffered, defer: false)
-        panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.contentView = background
-        panel.setContentSize(background.fittingSize)
+        .padding(.top, margin.top)
+        .padding(.horizontal, margin.left)
+        .padding(.bottom, margin.bottom)
+        .onGlass(.current())
+        let host = NSHostingView(rootView: view)
+        let window = GlassWindow(level: .statusBar, keyable: false)
+        window.contentView = host
+        let size = host.fittingSize
         let visible = (screen ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        panel.setFrameOrigin(NSPoint(x: visible.maxX - panel.frame.width - 16, y: visible.maxY - panel.frame.height - 12))
-        panel.alphaValue = 0
-        panel.orderFrontRegardless()
-        panel.animator().alphaValue = 1
-        self.panel = panel
-    }
-
-    // A layer's corner radius doesn't clip the blur, a mask image does.
-    private static func roundedMask(radius: CGFloat) -> NSImage {
-        let edge = radius * 2 + 1
-        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            return true
-        }
-        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
-        image.resizingMode = .stretch
-        return image
+        window.setFrame(NSRect(x: visible.maxX - 16 + margin.right - size.width, y: visible.maxY - 10 - size.height,
+                               width: size.width, height: size.height), display: true)
+        window.alphaValue = 0
+        window.orderFrontRegardless()
+        window.animator().alphaValue = 1
+        window.reshadow()
+        self.window = window
     }
 
     func update(_ text: String) {
-        message?.stringValue = text
+        message.text = text
     }
 
     func hide(_ topic: String? = nil) {
         guard topic == nil || topic == self.topic else { return }
-        panel?.orderOut(nil)
-        panel = nil
-        message = nil
-        actions = []
+        window?.orderOut(nil)
+        window = nil
         self.topic = nil
     }
+}
 
-    @objc private func clicked(_ sender: NSButton) {
-        let action = actions[sender.tag]
-        hide()
-        action.run()
+private struct PromptView: View {
+    let icon: Prompt.Icon
+    let title: String
+    @ObservedObject var message: Prompt.Message
+    let actions: [Prompt.Action]
+    @Environment(\.glass) private var look
+
+    var body: some View {
+        HStack(spacing: 12) {
+            switch icon {
+            case .app(let image):
+                Image(nsImage: image ?? NSApp.applicationIconImage).resizable().frame(width: 40, height: 40)
+            case .symbol(let name):
+                Image(systemName: name).font(.system(size: 17, weight: .bold))
+                    .frame(width: 38, height: 38)
+                    .background(Tone.warning.color, in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .bold))
+                Text(message.text).font(.system(size: 12)).foregroundStyle(look.sub).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            VStack(spacing: 6) {
+                ForEach(actions.indices, id: \.self) { index in
+                    Button(actions[index].title, action: actions[index].run)
+                        .buttonStyle(PillStyle(kind: index == 0 ? .light : .control, height: 28, wide: true))
+                }
+            }
+            .frame(minWidth: 100)
+            .fixedSize()
+        }
+        .padding(14)
+        .frame(width: 400)
+        .legible()
+        .surface(.panel, radius: 24)
     }
 }

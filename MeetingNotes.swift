@@ -3,14 +3,28 @@ import Speech
 @preconcurrency import UserNotifications
 
 // Turns a finished recording into transcript.md, with a summary from the local claude CLI when it is installed,
-// and a smaller copy of the video made with ffmpeg that replaces the original. Folders a quit left half done are
+// and a smaller copy of the video, or of the audio, made with ffmpeg that replaces the original. Folders a quit left half done are
 // picked up at launch.
 @MainActor
 final class MeetingNotes {
     static let recording = "recording.mov"
     static let compressed = "recording.mp4"
+    static let compressedAudio = "recording.m4a"
     static let transcript = "transcript.md"
     static let event = "event.json"
+
+    struct Progress: Equatable {
+        let title: String
+        let detail: String
+        let folder: URL
+    }
+
+    struct Outcome: Equatable {
+        let folder: URL
+        let ok: Bool
+        let detail: String
+        let date: Date
+    }
 
     private struct Segment {
         let speaker: String
@@ -49,7 +63,9 @@ final class MeetingNotes {
         .appendingPathComponent("Library/Application Support/Gremlin/Models")
 
     var onChange: (() -> Void)?
-    private(set) var status: String?
+    private(set) var progress: Progress?
+    // The last transcript written since launch.
+    private(set) var outcome: Outcome?
     private var queue: [URL] = []
     private var running = false
     private var current: Process?
@@ -77,14 +93,21 @@ final class MeetingNotes {
         Task {
             await run(folder)
             running = false
-            setStatus(nil)
+            setProgress(nil)
             next()
         }
     }
 
-    private func setStatus(_ text: String?) {
-        status = text
+    private func setProgress(_ progress: Progress?) {
+        self.progress = progress
         onChange?()
+    }
+
+    // The folder's name without the date and time it starts with.
+    static func title(of folder: URL) -> String {
+        let name = folder.lastPathComponent
+        guard let range = name.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}\.\d{2} "#, options: .regularExpression) else { return name }
+        return String(name[range.upperBound...])
     }
 
     private func run(_ folder: URL) async {
@@ -92,9 +115,14 @@ final class MeetingNotes {
         let video = folder.appendingPathComponent(Self.recording)
         let transcript = folder.appendingPathComponent(Self.transcript)
         let fileManager = FileManager.default
+        let title = Self.title(of: folder)
+        let asset = AVURLAsset(url: video)
+        let length = (try? await asset.load(.duration).seconds).map { "\(max(1, Int(($0 / 60).rounded()))) min" } ?? "Saved"
+        let hasVideo = !((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty
 
         if !fileManager.fileExists(atPath: transcript.path) {
-            setStatus("Transcribing \(name)…")
+            setProgress(Progress(title: "Transcribing \(title)", detail: Self.claude == nil ? length : "\(length) · summary next",
+                                 folder: folder))
             let started = Date()
             do {
                 let segments = try await transcribe(video, name: name)
@@ -103,28 +131,34 @@ final class MeetingNotes {
                 let body = try await Self.markdown(name: name, video: video, segments: segments, event: event)
                 try body.write(to: transcript, atomically: true, encoding: .utf8)
                 Log.write("Meeting \(name): transcribed \(segments.count) passages in \(Int(Date().timeIntervalSince(started)))s")
+                var details = [title, length]
                 if !segments.isEmpty, let claude = Self.claude {
-                    setStatus("Summarizing \(name)…")
+                    setProgress(Progress(title: "Summarizing \(title)", detail: "\(length) · claude is writing it", folder: folder))
                     if let summary = await summarize(transcript, claude: claude, event: event) {
                         let marker = "## Transcript"
                         try body.replacingOccurrences(of: marker, with: "## Summary\n\n\(summary)\n\n\(marker)")
                             .write(to: transcript, atomically: true, encoding: .utf8)
+                        let items = Self.actionItems(in: summary)
+                        if items > 0 { details.append("\(items) action item\(items == 1 ? "" : "s")") }
                     }
                 }
+                outcome = Outcome(folder: folder, ok: true, detail: details.joined(separator: " · "), date: Date())
                 notify("Transcript ready", name)
             } catch {
                 Log.write("Meeting \(name): transcription failed: \(error.localizedDescription)")
                 try? "# \(name)\n\nCouldn't transcribe the recording: \(error.localizedDescription)\n"
                     .write(to: transcript, atomically: true, encoding: .utf8)
+                outcome = Outcome(folder: folder, ok: false, detail: error.localizedDescription, date: Date())
             }
         }
 
-        let compressed = folder.appendingPathComponent(Self.compressed)
+        let compressed = folder.appendingPathComponent(hasVideo ? Self.compressed : Self.compressedAudio)
         guard let ffmpeg = Self.ffmpeg else { return }
         if !fileManager.fileExists(atPath: compressed.path) {
-            setStatus("Compressing \(name)…")
+            setProgress(Progress(title: "Compressing \(title)", detail: "Making a smaller copy of the " + (hasVideo ? "video" : "audio"),
+                                 folder: folder))
             let started = Date()
-            guard await compress(video, to: compressed, ffmpeg: ffmpeg) else { return }
+            guard await compress(video, to: compressed, video: hasVideo, ffmpeg: ffmpeg) else { return }
             let before = (try? fileManager.attributesOfItem(atPath: video.path)[.size] as? Int) ?? 0
             let after = (try? fileManager.attributesOfItem(atPath: compressed.path)[.size] as? Int) ?? 0
             Log.write("Meeting \(name): compressed \(before / 1_000_000) MB to \(after / 1_000_000) MB in \(Int(Date().timeIntervalSince(started)))s")
@@ -135,7 +169,7 @@ final class MeetingNotes {
             return Log.write("Meeting \(name): kept \(Self.recording), the compressed copy is \(copy ?? 0)s long instead of \(original ?? 0)s")
         }
         if let text = try? String(contentsOf: transcript, encoding: .utf8) {
-            try? text.replacingOccurrences(of: "](\(Self.recording))", with: "](\(Self.compressed))")
+            try? text.replacingOccurrences(of: "](\(Self.recording))", with: "](\(compressed.lastPathComponent))")
                 .write(to: transcript, atomically: true, encoding: .utf8)
         }
         do {
@@ -158,7 +192,6 @@ final class MeetingNotes {
         } catch {
             Log.write("Meeting \(name): using Apple's transcriber, whisper isn't ready: \(error.localizedDescription)")
         }
-        setStatus("Transcribing \(name)…")
         var segments: [Segment] = []
         for (index, (track, speaker)) in zip(tracks, speakers).enumerated() {
             let passages: [(start: Double, end: Double, text: String)]
@@ -193,7 +226,10 @@ final class MeetingNotes {
     private func download(_ name: String, from address: String) async throws -> URL {
         let file = Self.models.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: file.path) { return file }
-        setStatus("Downloading the transcription model…")
+        let previous = progress
+        setProgress(Progress(title: "Downloading the transcription model", detail: "Only the first time",
+                             folder: previous?.folder ?? Self.models))
+        defer { setProgress(previous) }
         let (temporary, response) = try await URLSession.shared.download(from: URL(string: address)!)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         try FileManager.default.createDirectory(at: Self.models, withIntermediateDirectories: true)
@@ -209,7 +245,7 @@ final class MeetingNotes {
         let json = base.appendingPathExtension("json")
         defer { [audio, json].forEach { try? FileManager.default.removeItem(at: $0) } }
         let extract = await run(whisper.ffmpeg, ["-nostdin", "-loglevel", "error", "-y", "-i", video.path, "-map", "0:a:\(index)",
-                                                 "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", audio.path])
+                                                 "-af", Self.fromStart, "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", audio.path])
         guard extract.status == 0 else { throw Self.failure("ffmpeg", extract) }
         let language = UserDefaults.standard.string(forKey: "meetingLanguage") ?? "auto"
         // Voice activity detection skips the long silences on each side's track, where whisper tends to make up words.
@@ -224,6 +260,10 @@ final class MeetingNotes {
             (Double($0.offsets.from) / 1000, Double($0.offsets.to) / 1000, $0.text.trimmingCharacters(in: .whitespacesAndNewlines))
         })
     }
+
+    // A track that starts after the recording does keeps its offset in the movie, but ffmpeg drops it unless the
+    // start is padded with silence, which would put Me and Them out of step.
+    private static let fromStart = "aresample=async=1:first_pts=0"
 
     private static func failure(_ tool: String, _ result: (status: Int32, output: Data, errors: Data)) -> Error {
         let message = String(decoding: result.errors, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -318,6 +358,12 @@ final class MeetingNotes {
         markdown only, no preamble.
         """
 
+    private static func actionItems(in summary: String) -> Int {
+        guard let heading = summary.range(of: "### Action items") else { return 0 }
+        return summary[heading.upperBound...].split(separator: "\n").prefix { !$0.hasPrefix("#") }
+            .filter { $0.hasPrefix("- ") || $0.hasPrefix("* ") }.count
+    }
+
     private func summarize(_ transcript: URL, claude: URL, event: MeetingCalendar.Event?) async -> String? {
         var prompt = Self.summaryPrompt
         if let event {
@@ -337,26 +383,34 @@ final class MeetingNotes {
 
     // MARK: Compression
 
-    private func compress(_ video: URL, to output: URL, ffmpeg: URL) async -> Bool {
-        let audioTracks = (try? await AVURLAsset(url: video).loadTracks(withMediaType: .audio).count) ?? 0
-        // Meetings records at most 2560 px and 15 fps; older recordings were bigger.
-        var graph = "[0:v:0]fps=15,scale=w='min(2560,iw)':h='min(2560,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2[v]"
-        var maps = ["-map", "[v]"]
+    private func compress(_ recording: URL, to output: URL, video: Bool, ffmpeg: URL) async -> Bool {
+        let audioTracks = (try? await AVURLAsset(url: recording).loadTracks(withMediaType: .audio).count) ?? 0
+        var graph: [String] = []
+        var maps: [String] = []
+        if video {
+            // Meetings records at most 2560 px and 15 fps; older recordings were bigger.
+            graph.append("[0:v:0]fps=15,scale=w='min(2560,iw)':h='min(2560,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2[v]")
+            maps += ["-map", "[v]"]
+        }
         if audioTracks > 1 {
-            graph += ";[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[a]"
+            graph.append("[0:a:0]\(Self.fromStart)[s];[0:a:1]\(Self.fromStart)[m];[s][m]amix=inputs=2:duration=longest:normalize=0[a]")
             maps += ["-map", "[a]"]
         } else if audioTracks == 1 {
-            maps += ["-map", "0:a:0"]
+            graph.append("[0:a:0]\(Self.fromStart)[a]")
+            maps += ["-map", "[a]"]
         }
         let partial = output.appendingPathExtension("part")
-        let arguments = ["-nostdin", "-loglevel", "error", "-y", "-i", video.path, "-filter_complex", graph] + maps + [
-            "-c:v", "libx265", "-preset", "medium", "-crf", "26", "-pix_fmt", "yuv420p", "-tag:v", "hvc1",
-            "-x265-params", "log-level=error", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
-            "-f", "mp4", partial.path,
-        ]
+        var arguments = ["-nostdin", "-loglevel", "error", "-y", "-i", recording.path]
+        if !graph.isEmpty { arguments += ["-filter_complex", graph.joined(separator: ";")] }
+        arguments += maps
+        if video {
+            arguments += ["-c:v", "libx265", "-preset", "medium", "-crf", "26", "-pix_fmt", "yuv420p", "-tag:v", "hvc1",
+                          "-x265-params", "log-level=error"]
+        }
+        arguments += ["-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-f", "mp4", partial.path]
         let result = await run(ffmpeg, arguments, quality: .utility, yieldsDuringCalls: true)
         guard result.status == 0 else {
-            Log.write("Meeting \(video.deletingLastPathComponent().lastPathComponent): ffmpeg exited \(result.status): "
+            Log.write("Meeting \(recording.deletingLastPathComponent().lastPathComponent): ffmpeg exited \(result.status): "
                       + String(decoding: result.errors, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
             try? FileManager.default.removeItem(at: partial)
             return false
