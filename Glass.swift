@@ -2,51 +2,76 @@ import AppKit
 import SwiftUI
 
 // Every Gremlin surface takes its look from here: the menu panel, its cards and buttons, the record strip, and the
-// call and warning panels. Each knob can also be changed without rebuilding, and the next panel that opens uses it:
-//   defaults write com.bunniesinc.gremlin glass.tint -float 0.45
-//   defaults write com.bunniesinc.gremlin glass.material frosted
-//   defaults delete com.bunniesinc.gremlin glass.tint
+// call and warning panels. It follows the system's Light or Dark Mode, each with its own defaults. Each knob can also
+// be changed without rebuilding, and the next panel that opens uses it:
+//   defaults write com.bunniesinc.gremlin glass.dark.tint -float 0.6
+//   defaults write com.bunniesinc.gremlin glass.material clear
+//   defaults delete com.bunniesinc.gremlin glass.dark.tint
+// A glass.<knob> key changes both modes, and glass.dark.<knob> or glass.light.<knob> just one.
 struct GlassLook: Sendable {
     enum Material: String, Sendable {
-        // Liquid Glass over a dark blur, so whatever is behind it can't be read through it.
+        // Liquid Glass over a heavy blur, so whatever is behind it can't be read through it.
         case frosted
         // Liquid Glass with more blur, which adapts to what's behind it.
         case regular
-        // Liquid Glass you can see through. Only readable over dark, plain backgrounds.
+        // Liquid Glass you can see through. Only readable over plain backgrounds.
         case clear
     }
 
+    let dark: Bool
     var material = Material.frosted
-    // Laid over the glass so white text stays readable over bright windows. Raise tint when it's hard to read.
-    var tintColor = "#1E1446"
-    var tint = 0.24
+    // Laid over the blur. In Dark Mode it keeps the panel very dark even over bright windows.
+    var tintColor: String
+    var tint: Double
     var radius = 30.0
-    var rim = 0.42
-    var textShadow = 0.35
-    var subtext = 0.84
-    var card = 0.10
-    var control = 0.15
-    var strip = 0.62
+    var rim: Double
+    var textShadow: Double
+    var subtext: Double
+    var card: Double
+    var control: Double
+    var strip: Double
 
-    static func current(_ defaults: UserDefaults = .standard) -> GlassLook {
-        var look = GlassLook()
-        if let name = defaults.string(forKey: "glass.material"), let material = Material(rawValue: name) { look.material = material }
-        if let hex = defaults.string(forKey: "glass.tintColor"), Color(hex: hex) != nil { look.tintColor = hex }
+    init(dark: Bool) {
+        self.dark = dark
+        tintColor = dark ? "#0C0A14" : "#FFFFFF"
+        tint = 0.5
+        rim = dark ? 0.14 : 0.1
+        textShadow = 0
+        subtext = dark ? 0.6 : 0.55
+        card = dark ? 0.06 : 0.04
+        control = dark ? 0.1 : 0.07
+        strip = dark ? 0.4 : 0.05
+    }
+
+    static func current(dark: Bool, _ defaults: UserDefaults = .standard) -> GlassLook {
+        var look = GlassLook(dark: dark)
+        let mode = dark ? "glass.dark." : "glass.light."
+        func key(_ name: String) -> String? {
+            [mode + name, "glass." + name].first { defaults.object(forKey: $0) != nil }
+        }
+        if let key = key("material"), let material = defaults.string(forKey: key).flatMap(Material.init) { look.material = material }
+        if let key = key("tintColor"), let hex = defaults.string(forKey: key), Color(hex: hex) != nil { look.tintColor = hex }
         let knobs: [(String, WritableKeyPath<GlassLook, Double>)] = [
             ("tint", \.tint), ("radius", \.radius), ("rim", \.rim), ("textShadow", \.textShadow),
             ("subtext", \.subtext), ("card", \.card), ("control", \.control), ("strip", \.strip),
         ]
-        for (key, path) in knobs where defaults.object(forKey: "glass." + key) != nil {
-            look[keyPath: path] = defaults.double(forKey: "glass." + key)
+        for (name, path) in knobs {
+            if let key = key(name) { look[keyPath: path] = defaults.double(forKey: key) }
         }
         return look
     }
 
-    var sub: Color { .white.opacity(subtext) }
+    // Text, glyphs, and the fills of cards and buttons: white in Dark Mode, near black in Light Mode.
+    var ink: Color { dark ? .white : Color(white: 0.11) }
+    var sub: Color { ink.opacity(subtext) }
+
+    func fill(_ amount: Double) -> Color {
+        ink.opacity(amount)
+    }
 }
 
 private struct GlassLookKey: EnvironmentKey {
-    static let defaultValue = GlassLook()
+    static let defaultValue = GlassLook(dark: true)
 }
 
 extension EnvironmentValues {
@@ -64,7 +89,7 @@ enum Tone: Equatable {
         case .good: Color(red: 0.19, green: 0.82, blue: 0.35)
         case .busy: Color(red: 0.04, green: 0.52, blue: 1)
         case .warning: Color(red: 1, green: 0.62, blue: 0.04)
-        case .off: .white.opacity(0.55)
+        case .off: .gray
         case .danger: Color(red: 1, green: 0.27, blue: 0.23)
         }
     }
@@ -89,7 +114,8 @@ enum Surface {
     case danger
     case primary
     case record
-    case light
+    // White in Dark Mode and near black in Light Mode, for the one action that matters most.
+    case prominent
 }
 
 extension View {
@@ -98,14 +124,22 @@ extension View {
         modifier(SurfaceStyle(kind: kind, radius: radius))
     }
 
-    // Puts a view tree on the glass: the look for every surface in it, and light text and controls.
-    func onGlass(_ look: GlassLook) -> some View {
-        environment(\.glass, look).environment(\.colorScheme, .dark)
+    // Puts a view tree on the glass, with the look for the system's current Light or Dark Mode.
+    func onGlass() -> some View {
+        modifier(OnGlass())
     }
 
-    // White text with a faint shadow, so it stays readable over bright windows behind the glass.
+    // Text in the mode's ink, with a shadow behind it when the look asks for one.
     func legible() -> some View {
         modifier(Legible())
+    }
+}
+
+private struct OnGlass: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content.environment(\.glass, .current(dark: scheme == .dark))
     }
 }
 
@@ -113,8 +147,8 @@ private struct Legible: ViewModifier {
     @Environment(\.glass) private var look
 
     func body(content: Content) -> some View {
-        content.foregroundStyle(.white)
-            .shadow(color: Color(red: 20 / 255, green: 10 / 255, blue: 60 / 255).opacity(look.textShadow), radius: 3, y: 1)
+        content.foregroundStyle(look.ink)
+            .shadow(color: .black.opacity(look.textShadow), radius: look.textShadow > 0 ? 3 : 0, y: 1)
     }
 }
 
@@ -140,26 +174,24 @@ private struct SurfaceStyle: ViewModifier {
         switch kind {
         case .panel:
             glass(content.background(Color(hex: look.tintColor)?.opacity(look.tint) ?? .clear, in: shape))
-                .overlay(shape.strokeBorder(rim(look.rim), lineWidth: 1))
+                .overlay(shape.strokeBorder(look.fill(look.rim), lineWidth: 1))
         case .card:
-            content.background(.white.opacity(look.card), in: shape).overlay(shape.strokeBorder(rim(0.3), lineWidth: 1))
+            content.background(look.fill(look.card), in: shape)
         case .control:
-            content.background(.white.opacity(look.control), in: shape).overlay(shape.strokeBorder(rim(0.38), lineWidth: 1))
+            content.background(look.fill(look.control), in: shape)
         case .strip:
-            content.background(Color(red: 8 / 255, green: 6 / 255, blue: 20 / 255).opacity(look.strip), in: shape)
-                .overlay(shape.strokeBorder(rim(0.22), lineWidth: 1))
-                .shadow(color: .black.opacity(0.3), radius: 10, y: 6)
+            content.background(.black.opacity(look.strip), in: shape)
+                .shadow(color: .black.opacity(look.dark ? 0.3 : 0.06), radius: 10, y: 6)
         case .warning:
-            content.background(Tone.warning.color.opacity(0.22), in: shape)
-                .overlay(shape.strokeBorder(Color(red: 1, green: 0.78, blue: 0.47).opacity(0.55), lineWidth: 1))
+            content.background(Tone.warning.color.opacity(look.dark ? 0.22 : 0.16), in: shape)
         case .danger:
-            content.background(Tone.danger.color.opacity(0.4), in: shape).overlay(shape.strokeBorder(rim(0.4), lineWidth: 1))
+            content.background(Tone.danger.color.opacity(look.dark ? 0.35 : 0.12), in: shape)
         case .primary:
             content.background(Tone.busy.color, in: shape)
         case .record:
             content.background(Tone.danger.color, in: shape)
-        case .light:
-            content.background(.white, in: shape)
+        case .prominent:
+            content.background(look.dark ? Color.white : Color(white: 0.11), in: shape)
         }
     }
 
@@ -168,13 +200,8 @@ private struct SurfaceStyle: ViewModifier {
         switch look.material {
         case .clear: content.glassEffect(.clear, in: shape)
         case .regular: content.glassEffect(.regular, in: shape)
-        case .frosted: content.background(Frost(radius: corner ?? 30)).glassEffect(.clear, in: shape)
+        case .frosted: content.background(Frost(radius: corner ?? 30, dark: look.dark)).glassEffect(.clear, in: shape)
         }
-    }
-
-    // Brighter along the top edge, like light catching the rim.
-    private func rim(_ opacity: Double) -> LinearGradient {
-        LinearGradient(colors: [.white.opacity(min(1, opacity * 1.5)), .white.opacity(opacity * 0.5)], startPoint: .top, endPoint: .bottom)
     }
 }
 
@@ -198,10 +225,11 @@ private struct GlassShape: InsettableShape {
 
 private struct Frost: NSViewRepresentable {
     let radius: CGFloat
+    let dark: Bool
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .hudWindow
+        view.material = dark ? .hudWindow : .popover
         view.blendingMode = .behindWindow
         view.state = .active
         // A layer's corner radius doesn't clip a behind-window blur, a mask image does.
@@ -209,7 +237,9 @@ private struct Frost: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = dark ? .hudWindow : .popover
+    }
 }
 
 extension NSImage {
@@ -241,8 +271,6 @@ final class GlassWindow: NSPanel {
         self.level = level
         // Gremlin is never the active app, and tooltips are off for inactive apps unless asked for.
         allowsToolTipsWhenApplicationIsInactive = true
-        // The text on the glass is white, so the glass and the blur under it stay dark in Light Mode too.
-        appearance = NSAppearance(named: .darkAqua)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear
@@ -258,9 +286,6 @@ final class GlassWindow: NSPanel {
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
     }
-
-    // Room around the glass for it to stretch when a page morphs.
-    static let margin = NSEdgeInsets(top: 0, left: 8, bottom: 32, right: 8)
 
     // The shadow follows what's drawn, so it's redrawn once the glass has settled into a new size.
     func reshadow() {
@@ -282,21 +307,31 @@ struct PillStyle: ButtonStyle {
     }
 
     private struct Pill: View {
+        @Environment(\.glass) private var look
         let configuration: Configuration
         let style: PillStyle
+
+        private var ink: Color {
+            switch style.kind {
+            case .primary, .record: .white
+            case .prominent: look.dark ? Color(white: 0.07) : .white
+            case .danger: look.dark ? .white : Tone.danger.color
+            default: look.ink
+            }
+        }
 
         var body: some View {
             configuration.label
                 .font(.system(size: style.font, weight: .semibold))
                 .lineLimit(1)
                 .fixedSize(horizontal: !style.wide, vertical: false)
-                .foregroundStyle(style.kind == .light ? Color(white: 0.07) : .white)
+                .foregroundStyle(ink)
                 .padding(.horizontal, style.height > 36 ? 16 : 12)
                 .frame(maxWidth: style.wide ? .infinity : nil)
                 .frame(height: style.height)
                 .surface(style.kind)
                 .contentShape(Capsule())
-                .modifier(Pressable(pressed: configuration.isPressed, scale: 0.97, light: style.kind == .light))
+                .modifier(Pressable(pressed: configuration.isPressed, scale: 0.97, inverted: style.kind == .prominent))
         }
     }
 }
@@ -324,18 +359,20 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-// Hover and press feedback for every button on the glass.
+// Hover and press feedback for every button on the glass. Hovering lifts a surface away from the panel: lighter on
+// dark glass, darker on light glass, and the other way round for the inverted prominent surface.
 private struct Pressable: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.glass) private var look
     // @State is a macro in this SDK, and the Command Line Tools can't expand it.
     private let hovered = State(initialValue: false)
     let pressed: Bool
     let scale: CGFloat
-    var light = false
+    var inverted = false
 
     func body(content: Content) -> some View {
         content
-            .brightness(isEnabled && hovered.wrappedValue ? (light ? -0.06 : 0.08) : 0)
+            .brightness(isEnabled && hovered.wrappedValue ? (look.dark != inverted ? 0.08 : -0.06) : 0)
             .opacity(isEnabled ? (pressed ? 0.75 : 1) : 0.45)
             .scaleEffect(pressed ? scale : 1)
             .onHover { hovered.wrappedValue = $0 }
@@ -345,6 +382,7 @@ private struct Pressable: ViewModifier {
 }
 
 struct GlassSwitch: View {
+    @Environment(\.glass) private var look
     let label: String
     let isOn: Bool
     let action: () -> Void
@@ -352,7 +390,7 @@ struct GlassSwitch: View {
     var body: some View {
         Button(action: action) {
             Capsule()
-                .fill(isOn ? Tone.good.color : .white.opacity(0.25))
+                .fill(isOn ? Tone.good.color : look.fill(0.18))
                 .frame(width: 38, height: 22)
                 .overlay(alignment: isOn ? .trailing : .leading) {
                     Circle().fill(.white).frame(width: 18, height: 18).padding(2).shadow(color: .black.opacity(0.25), radius: 1, y: 1)
@@ -375,14 +413,15 @@ struct Dot: View {
 }
 
 struct Spinner: View {
+    @Environment(\.glass) private var look
     var size: CGFloat = 16
     var line: CGFloat = 2
 
     var body: some View {
         TimelineView(.animation) { context in
             let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.9) / 0.9
-            Circle().stroke(.white.opacity(0.25), lineWidth: line)
-                .overlay(Circle().trim(from: 0, to: 0.25).stroke(.white, style: StrokeStyle(lineWidth: line, lineCap: .round))
+            Circle().stroke(look.fill(0.25), lineWidth: line)
+                .overlay(Circle().trim(from: 0, to: 0.25).stroke(look.ink, style: StrokeStyle(lineWidth: line, lineCap: .round))
                     .rotationEffect(.degrees(turn * 360)))
                 .frame(width: size - line, height: size - line)
                 .frame(width: size, height: size)
@@ -411,6 +450,7 @@ struct Badge: View {
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 13, weight: .heavy))
+            .foregroundStyle(.white)
             .frame(width: 28, height: 28)
             .background(tone.color, in: Circle())
     }

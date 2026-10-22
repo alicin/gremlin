@@ -28,23 +28,19 @@ final class Prompt: NSObject {
         hide()
         self.topic = topic
         message.text = text
-        let margin = GlassWindow.margin
         let view = PromptView(icon: icon, title: title, message: message, actions: actions.map { action in
             Action(title: action.title) { [weak self] in
                 self?.hide()
                 action.run()
             }
         })
-        .padding(.top, margin.top)
-        .padding(.horizontal, margin.left)
-        .padding(.bottom, margin.bottom)
-        .onGlass(.current())
+        .onGlass()
         let host = NSHostingView(rootView: view)
         let window = GlassWindow(level: .statusBar, keyable: false)
         window.contentView = host
         let size = host.fittingSize
         let visible = (screen ?? NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        window.setFrame(NSRect(x: visible.maxX - 16 + margin.right - size.width, y: visible.maxY - 10 - size.height,
+        window.setFrame(NSRect(x: visible.maxX - 16 - size.width, y: visible.maxY - 10 - size.height,
                                width: size.width, height: size.height), display: true)
         window.alphaValue = 0
         window.orderFrontRegardless()
@@ -79,6 +75,7 @@ private struct PromptView: View {
                 Image(nsImage: image ?? NSApp.applicationIconImage).resizable().frame(width: 40, height: 40)
             case .symbol(let name):
                 Image(systemName: name).font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
                     .frame(width: 38, height: 38)
                     .background(Tone.warning.color, in: Circle())
             }
@@ -90,7 +87,7 @@ private struct PromptView: View {
             VStack(spacing: 6) {
                 ForEach(actions.indices, id: \.self) { index in
                     Button(actions[index].title, action: actions[index].run)
-                        .buttonStyle(PillStyle(kind: index == 0 ? .light : .control, height: 28, wide: true))
+                        .buttonStyle(PillStyle(kind: index == 0 ? .prominent : .control, height: 28, wide: true))
                 }
             }
             .frame(minWidth: 100)

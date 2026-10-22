@@ -111,8 +111,6 @@ final class MenuModel: ObservableObject {
     @Published var login = false
     @Published var language: String?
     @Published var restarted: Set<Int> = []
-    // Where the menu bar item sits across the panel, from 0 at its left edge to 1 at its right.
-    @Published var anchor: CGFloat = 0.5
     // The most the glass can grow before it would run off the bottom of the screen.
     @Published var maxHeight = CGFloat.infinity
     @Published var contentHeight: CGFloat = 0
@@ -121,7 +119,8 @@ final class MenuModel: ObservableObject {
     var perform: (Action) -> Void = { _ in }
 
     func go(_ page: Page) {
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) { self.page = page }
+        // A long, soft ease-out that settles without overshooting.
+        withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: 0.45)) { self.page = page }
     }
 }
 
@@ -132,7 +131,6 @@ struct MenuView: View {
     private static let padding: CGFloat = 18
 
     var body: some View {
-        let anchor = UnitPoint(x: model.anchor, y: 0)
         let room = model.maxHeight - Self.padding * 2
         Group {
             // Only when the screen is too short: a scroll view clips the shadows inside and the slide between pages.
@@ -145,22 +143,6 @@ struct MenuView: View {
         .padding(Self.padding)
         .legible()
         .surface(.panel)
-        .keyframeAnimator(initialValue: Squash(), trigger: model.page) { view, squash in
-            view.scaleEffect(x: squash.x, y: squash.y, anchor: anchor)
-        } keyframes: { _ in
-            KeyframeTrack(\.x) {
-                LinearKeyframe(0.97, duration: 0.08)
-                CubicKeyframe(1.012, duration: 0.2)
-                CubicKeyframe(0.998, duration: 0.15)
-                CubicKeyframe(1, duration: 0.15)
-            }
-            KeyframeTrack(\.y) {
-                LinearKeyframe(1.03, duration: 0.08)
-                CubicKeyframe(0.99, duration: 0.2)
-                CubicKeyframe(1.003, duration: 0.15)
-                CubicKeyframe(1, duration: 0.15)
-            }
-        }
     }
 
     private var pages: some View {
@@ -173,12 +155,6 @@ struct MenuView: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { model.contentHeight = $0 }
-    }
-
-    // The glass gives a little, like a soft object, when one page turns into another.
-    private struct Squash {
-        var x = 1.0
-        var y = 1.0
     }
 }
 
@@ -216,7 +192,7 @@ private struct MainPage: View {
             if let ipad = model.ipad { IPadCard(ipad: ipad, perform: model.perform) }
             UniversalControlCard(model: model)
             RestartSection(model: model)
-            Rectangle().fill(.white.opacity(0.3)).frame(height: 1)
+            Rectangle().fill(look.fill(0.12)).frame(height: 1)
             HStack {
                 Button("Show Recordings") { model.perform(.showRecordings) }
                 Spacer()
@@ -275,6 +251,7 @@ private struct RecordStrip: View {
 }
 
 private struct RecordingNow: View {
+    @Environment(\.glass) private var look
     let recording: MenuModel.Recording
     let stop: () -> Void
 
@@ -284,7 +261,7 @@ private struct RecordingNow: View {
             TimelineView(.periodic(from: recording.started, by: 1)) { _ in
                 Text(Meetings.elapsed(since: recording.started)).font(.system(size: 16, weight: .bold).monospacedDigit())
             }
-            Text(recording.audioOnly ? "Audio only" : "Screen and audio").font(.system(size: 11)).foregroundStyle(.white.opacity(0.72))
+            Text(recording.audioOnly ? "Audio only" : "Screen and audio").font(.system(size: 11)).foregroundStyle(look.sub)
         }
         Spacer(minLength: 0)
         LevelBars(active: recording.hearing)
@@ -292,7 +269,7 @@ private struct RecordingNow: View {
         Button(action: stop) {
             RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Tone.danger.color).frame(width: 16, height: 16)
                 .frame(width: 48, height: 48)
-                .surface(.light)
+                .surface(.prominent)
         }
         .buttonStyle(PressStyle())
         .help("Stop recording  ⌃⌥⌘R")
@@ -339,7 +316,7 @@ private struct BannerRow: View {
             }
             Spacer(minLength: 0)
             if let title = banner.button, let action = banner.action {
-                Button(title) { perform(action) }.buttonStyle(PillStyle(kind: banner.kind == .done ? .light : .control))
+                Button(title) { perform(action) }.buttonStyle(PillStyle(kind: banner.kind == .done ? .prominent : .control))
             }
             if let dismiss = banner.dismiss {
                 Button { perform(dismiss) } label: { Image(systemName: "xmark") }.buttonStyle(RoundStyle(size: 26))
@@ -421,7 +398,7 @@ private struct KeepAwakeSection: View {
                         withAnimation(.snappy) { model.perform(.keepAwake(index)) }
                     }
                     .font(.system(size: 11, weight: index == model.awakeStop ? .bold : .medium))
-                    .foregroundStyle(index == model.awakeStop ? .white : look.sub)
+                    .foregroundStyle(index == model.awakeStop ? look.ink : look.sub)
                     .frame(width: 44)
                     .buttonStyle(PressStyle())
                 }
@@ -435,6 +412,7 @@ private struct KeepAwakeSection: View {
 }
 
 private struct StopSlider: View {
+    @Environment(\.glass) private var look
     let count: Int
     let value: Int
     let pick: (Int) -> Void
@@ -446,8 +424,8 @@ private struct StopSlider: View {
             let step = width / CGFloat(count - 1)
             let x = dragging ?? CGFloat(value) * step
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.18)).frame(height: 8)
-                Capsule().fill(.white.opacity(0.85)).frame(width: max(8, x + 4), height: 8)
+                Capsule().fill(look.fill(0.15)).frame(height: 8)
+                Capsule().fill(Tone.busy.color).frame(width: max(8, x + 4), height: 8)
                 Circle().fill(.white).frame(width: 26, height: 26)
                     .shadow(color: .black.opacity(0.3), radius: 2.5, y: 1)
                     .offset(x: x - 13)
@@ -640,7 +618,7 @@ private struct RestartPage: View {
                 Text(item.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Text(done ? "Restarted just now" : item.hint)
                     .font(.system(size: 11, weight: done ? .semibold : .regular))
-                    .foregroundStyle(done ? Color(red: 0.55, green: 1, blue: 0.69) : look.sub)
+                    .foregroundStyle(done ? Tone.good.color : look.sub)
                     .lineLimit(1)
             }
             .padding(.horizontal, 12)

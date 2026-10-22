@@ -12,9 +12,6 @@ final class MenuPanel: NSObject, NSWindowDelegate {
     private var window: GlassWindow?
     private weak var button: NSStatusBarButton?
     private var monitors: [Any] = []
-    private var top: CGFloat = 0
-    private var left: CGFloat = 0
-    private var shrink: DispatchWorkItem?
 
     init(model: MenuModel) {
         self.model = model
@@ -30,7 +27,7 @@ final class MenuPanel: NSObject, NSWindowDelegate {
         guard window == nil else { return }
         model.page = .main
         onOpen?()
-        let host = NSHostingView(rootView: MenuRoot(model: model, look: .current()) { [weak self] size in self?.fit(size) })
+        let host = NSHostingView(rootView: MenuRoot(model: model) { [weak self] _ in self?.window?.reshadow() })
         host.sizingOptions = []
         let window = GlassWindow(level: .popUpMenu, keyable: true)
         window.contentView = host
@@ -38,7 +35,6 @@ final class MenuPanel: NSObject, NSWindowDelegate {
         window.onCancel = { [weak self] in self?.close() }
         self.window = window
 
-        let margin = GlassWindow.margin
         let anchor = Self.frame(of: button)
         let screen = anchor.flatMap { anchor in NSScreen.screens.first { $0.frame.contains(NSPoint(x: anchor.midX, y: anchor.midY)) } }
             ?? NSScreen.main ?? NSScreen.screens[0]
@@ -46,12 +42,12 @@ final class MenuPanel: NSObject, NSWindowDelegate {
         // Centered under the menu bar item, but kept on screen when the item is near an edge.
         let center = anchor?.midX ?? visible.maxX - 8 - MenuRoot.width / 2
         let glass = min(max(visible.minX + 8, center - MenuRoot.width / 2), visible.maxX - 8 - MenuRoot.width)
-        model.anchor = (center - glass) / MenuRoot.width
-        left = glass - margin.left
         // An auto-hiding menu bar isn't left out of the visible frame, so go by the item when it's lower.
-        top = min(visible.maxY, anchor?.minY ?? visible.maxY) - 6
-        model.maxHeight = top - margin.top - margin.bottom - visible.minY - 8
-        place(height: host.fittingSize.height)
+        let top = min(visible.maxY, anchor?.minY ?? visible.maxY) - 6
+        model.maxHeight = top - visible.minY - 8
+        // The window reaches down as far as the glass ever could and never resizes, so the glass stays pinned to the top
+        // and grows or shrinks downward. Clicks on the clear part below it go through to whatever is underneath.
+        window.setFrame(NSRect(x: glass, y: top - model.maxHeight, width: MenuRoot.width, height: model.maxHeight), display: true)
 
         window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
@@ -76,7 +72,6 @@ final class MenuPanel: NSObject, NSWindowDelegate {
         // It stays on screen while it fades, and losing key then mustn't close a panel opened in the meantime.
         window.delegate = nil
         window.onCancel = nil
-        shrink?.cancel()
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         button?.highlight(false)
@@ -91,25 +86,6 @@ final class MenuPanel: NSObject, NSWindowDelegate {
         close()
     }
 
-    // The glass changes height when a page morphs into another. Growing happens at once; shrinking waits for the
-    // animation, so the glass is never clipped while it's still tall.
-    private func fit(_ size: CGSize) {
-        guard let window else { return }
-        let height = size.height + GlassWindow.margin.top + GlassWindow.margin.bottom
-        shrink?.cancel()
-        if height >= window.frame.height { return place(height: height) }
-        let later = DispatchWorkItem { [weak self] in self?.place(height: height) }
-        shrink = later
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: later)
-    }
-
-    private func place(height: CGFloat) {
-        guard let window else { return }
-        let width = MenuRoot.width + GlassWindow.margin.left + GlassWindow.margin.right
-        window.setFrame(NSRect(x: left, y: top - height, width: width, height: height), display: true)
-        window.reshadow()
-    }
-
     // The menu bar item's place on screen, or nil when the system doesn't say where it is.
     private static func frame(of button: NSStatusBarButton?) -> NSRect? {
         guard let button, let window = button.window else { return nil }
@@ -122,17 +98,13 @@ struct MenuRoot: View {
     static let width: CGFloat = 364
 
     @ObservedObject var model: MenuModel
-    let look: GlassLook
     let onSize: (CGSize) -> Void
 
     var body: some View {
         MenuView(model: model)
             .frame(width: Self.width)
             .onGeometryChange(for: CGSize.self) { $0.size } action: { onSize($0) }
-            .padding(.top, GlassWindow.margin.top)
-            .padding(.horizontal, GlassWindow.margin.left)
-            .padding(.bottom, GlassWindow.margin.bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .onGlass(look)
+            .onGlass()
     }
 }

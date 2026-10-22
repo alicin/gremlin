@@ -29,7 +29,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/hero.jpg" width="100%" alt="Three Gremlin panels: the main view, the main view while recording, and the Universal Control page">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.jpg"><img src="docs/hero-light.jpg" width="100%" alt="Three Gremlin panels: the main view, the main view while recording, and the Universal Control page"></picture>
 </p>
 
 Click the paw in the menu bar and a glass panel drops down with everything in one place. Each part below is a section of that panel. Pages like Restart, Universal Control and Settings slide in, and the glass stretches to fit them. Escape or a click anywhere else closes it.
@@ -40,7 +40,7 @@ It's a handful of Swift files built from the command line. It needs nothing else
 
 <table>
 <tr>
-<td width="50%"><img src="docs/recording.jpg" alt="The panel while recording, with the timer, live sound bars and the stop button"></td>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/recording-dark.jpg"><img src="docs/recording-light.jpg" alt="The panel while recording, with the timer, live sound bars and the stop button"></picture></td>
 <td>
 
 **Record** sits at the top of the panel. **Screen** records the screen the pointer is on, with all sound and your mic. **Audio** records just the two sides of the call, with no video.
@@ -61,13 +61,13 @@ Either one stops a recording that's running.
 When a browser or a meeting app (Zoom, Teams, Webex, Slack, FaceTime) has used the mic for 5 seconds, a panel under the menu bar asks whether to record the call. **Record** records the screen the call's window is on, **Audio Only** skips the video, and **Not now** leaves that call alone until the app lets go of the mic.
 
 <p align="center">
-  <img src="docs/call-offer.jpg" width="480" alt="A panel offering to record a Safari call, with Record, Audio Only and Not now">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/call-offer-dark.jpg"><img src="docs/call-offer-light.jpg" width="480" alt="A panel offering to record a Safari call, with Record, Audio Only and Not now"></picture>
 </p>
 
 When a recorded call goes quiet, meaning its app has stopped using both the mic and the speakers for 8 seconds, the panel counts down 15 seconds before stopping.
 
 <p align="center">
-  <img src="docs/call-ended.jpg" width="480" alt="A panel counting down to stop the recording after the call ended">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/call-ended-dark.jpg"><img src="docs/call-ended-light.jpg" width="480" alt="A panel counting down to stop the recording after the call ended"></picture>
 </p>
 
 These panels show over full-screen apps and appear even with notifications or a Focus turned off. Nothing is ever recorded without you asking, and **Offer to record calls** in Settings turns the offers off.
@@ -90,7 +90,7 @@ The recording's folder opens in Finder as soon as you stop. The panel then shows
 An audio-only recording ends up as `recording.m4a` instead.
 
 </td>
-<td width="50%"><img src="docs/transcript.jpg" alt="The panel showing Transcript ready, with Open"></td>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/transcript-dark.jpg"><img src="docs/transcript-light.jpg" alt="The panel showing Transcript ready, with Open"></picture></td>
 </tr>
 </table>
 
@@ -137,7 +137,7 @@ It uses the same private SidecarCore calls as the Displays menu in Control Cente
 
 <table>
 <tr>
-<td width="50%"><img src="docs/universal-control.jpg" alt="The Universal Control page with its status, devices, reset buttons and pairing"></td>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/universal-control-dark.jpg"><img src="docs/universal-control-light.jpg" alt="The Universal Control page with its status, devices, reset buttons and pairing"></picture></td>
 <td>
 
 **What it is.** Universal Control lets one keyboard and mouse work across Macs and iPads sitting next to each other. You move the pointer past the edge of one screen and keep going on the next device.
@@ -167,7 +167,7 @@ All of these run as you, and macOS starts them again right away.
 **Fix Stuck Notification Center** in Settings watches for a macOS 27 bug where a banner freezes halfway in and Notification Center spins at 100% CPU. If it stays above 90% for 30 seconds, Gremlin restarts it. It's on by default.
 
 </td>
-<td width="50%"><img src="docs/restart.jpg" alt="The Restart page with a tile for each part of macOS"></td>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/restart-dark.jpg"><img src="docs/restart-light.jpg" alt="The Restart page with a tile for each part of macOS"></picture></td>
 </tr>
 </table>
 
@@ -187,7 +187,7 @@ All of these run as you, and macOS starts them again right away.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/settings.jpg" alt="The Settings page"></td>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/settings-dark.jpg"><img src="docs/settings-light.jpg" alt="The Settings page"></picture></td>
 <td>
 
 **Settings ›** at the bottom of the panel turns features on and off, and Gremlin remembers them between launches.
@@ -205,27 +205,27 @@ Everything Gremlin does is logged to `~/Library/Logs/Gremlin.log`.
 
 ## Make the glass yours
 
-Every surface, from the panel and its cards and buttons to the record strip and the call panels, takes its look from one place: `GlassLook` in [`Glass.swift`](Glass.swift). By default it's Liquid Glass over a dark blur, so it reads well over any window. For more color, or for glass you can see through, change it:
+Every surface, from the panel and its cards and buttons to the record strip and the call panels, takes its look from one place: `GlassLook` in [`Glass.swift`](Glass.swift). It follows the system's Light or Dark Mode. Light looks like a regular macOS menu, and Dark is very dark, so either reads well over any window. Both are Liquid Glass over a blur, and each knob can be changed without rebuilding:
 
 ```sh
-defaults write com.bunniesinc.gremlin glass.tint -float 0.45
+defaults write com.bunniesinc.gremlin glass.dark.tint -float 0.7
 defaults write com.bunniesinc.gremlin glass.material clear
 ```
 
-The next panel that opens uses it, with no rebuild. `defaults delete com.bunniesinc.gremlin glass.tint` goes back to the default.
+`glass.<knob>` changes both modes, and `glass.light.<knob>` or `glass.dark.<knob>` changes just one. The next panel that opens uses it, and `defaults delete com.bunniesinc.gremlin glass.dark.tint` goes back to the default.
 
-| Key | Default | What it changes |
-| --- | --- | --- |
-| `glass.material` | `frosted` | `frosted`, Liquid Glass over a dark blur that reads well anywhere; `regular` Liquid Glass; or `clear`, which is see-through and only readable over dark, plain backgrounds |
-| `glass.tint` | `0.24` | How strongly the tint color covers the glass |
-| `glass.tintColor` | `#1E1446` | The tint color |
-| `glass.radius` | `30` | The panel's corner radius |
-| `glass.rim` | `0.42` | How bright the panel's edge is |
-| `glass.textShadow` | `0.35` | The faint shadow that keeps white text readable |
-| `glass.subtext` | `0.84` | How bright secondary text is |
-| `glass.card` | `0.10` | How filled the cards are |
-| `glass.control` | `0.15` | How filled buttons, pills and tiles are |
-| `glass.strip` | `0.62` | How dark the record strip is |
+| Knob | Light | Dark | What it changes |
+| --- | --- | --- | --- |
+| `material` | `frosted` | `frosted` | `frosted` is Liquid Glass over a blur that reads well anywhere; `regular` is Liquid Glass alone; `clear` is see-through and only readable over plain backgrounds |
+| `tint` | `0.5` | `0.5` | How strongly the tint color covers the blur |
+| `tintColor` | `#FFFFFF` | `#0C0A14` | The tint color |
+| `radius` | `30` | `30` | The panel's corner radius |
+| `rim` | `0.1` | `0.14` | How strong the panel's edge is |
+| `textShadow` | `0` | `0` | A shadow behind text, for see-through glass |
+| `subtext` | `0.55` | `0.6` | How strong secondary text is |
+| `card` | `0.04` | `0.06` | How filled the cards are |
+| `control` | `0.07` | `0.1` | How filled buttons, pills and tiles are |
+| `strip` | `0.05` | `0.4` | How dark the record strip is |
 
 ## Install
 
