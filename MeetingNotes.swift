@@ -79,10 +79,10 @@ final class MeetingNotes {
     func resume(in root: URL) {
         let fileManager = FileManager.default
         let folders = (try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        for folder in folders.sorted(by: { $0.path < $1.path })
-        where fileManager.fileExists(atPath: folder.appendingPathComponent(Self.recording).path)
-            && (Self.ffmpeg != nil || !fileManager.fileExists(atPath: folder.appendingPathComponent(Self.transcript).path)) {
-            process(folder)
+        for folder in folders.sorted(by: { $0.path < $1.path }) {
+            let recorded = fileManager.fileExists(atPath: folder.appendingPathComponent(Self.recording).path)
+            let transcribed = fileManager.fileExists(atPath: folder.appendingPathComponent(Self.transcript).path)
+            if recorded && (Self.ffmpeg != nil || !transcribed) || Self.claude != nil && Self.needsSummary(folder) { process(folder) }
         }
     }
 
@@ -116,31 +116,29 @@ final class MeetingNotes {
         let transcript = folder.appendingPathComponent(Self.transcript)
         let fileManager = FileManager.default
         let title = Self.title(of: folder)
-        let asset = AVURLAsset(url: video)
+        let recorded = fileManager.fileExists(atPath: video.path)
+        // Once the original is in the Trash, only the compressed copy is left to measure.
+        let media = recorded ? video : [Self.compressed, Self.compressedAudio].map { folder.appendingPathComponent($0) }
+            .first { fileManager.fileExists(atPath: $0.path) } ?? video
+        let asset = AVURLAsset(url: media)
         let length = (try? await asset.load(.duration).seconds).map { "\(max(1, Int(($0 / 60).rounded()))) min" } ?? "Saved"
         let hasVideo = !((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty
+        let event = (try? Data(contentsOf: folder.appendingPathComponent(Self.event)))
+            .flatMap { try? JSONDecoder().decode(MeetingCalendar.Event.self, from: $0) }
 
         if !fileManager.fileExists(atPath: transcript.path) {
+            guard recorded else { return }
             setProgress(Progress(title: "Transcribing \(title)", detail: Self.claude == nil ? length : "\(length) · summary next",
                                  folder: folder))
             let started = Date()
             do {
                 let segments = try await transcribe(video, name: name)
-                let event = (try? Data(contentsOf: folder.appendingPathComponent(Self.event)))
-                    .flatMap { try? JSONDecoder().decode(MeetingCalendar.Event.self, from: $0) }
                 let body = try await Self.markdown(name: name, video: video, segments: segments, event: event)
                 try body.write(to: transcript, atomically: true, encoding: .utf8)
                 Log.write("Meeting \(name): transcribed \(segments.count) passages in \(Int(Date().timeIntervalSince(started)))s")
                 var details = [title, length]
-                if !segments.isEmpty, let claude = Self.claude {
-                    setProgress(Progress(title: "Summarizing \(title)", detail: "\(length) · claude is writing it", folder: folder))
-                    if let summary = await summarize(transcript, claude: claude, event: event) {
-                        let marker = "## Transcript"
-                        try body.replacingOccurrences(of: marker, with: "## Summary\n\n\(summary)\n\n\(marker)")
-                            .write(to: transcript, atomically: true, encoding: .utf8)
-                        let items = Self.actionItems(in: summary)
-                        if items > 0 { details.append("\(items) action item\(items == 1 ? "" : "s")") }
-                    }
+                if !segments.isEmpty, Self.claude != nil {
+                    details.append(await addSummary(to: folder, title: title, length: length, event: event))
                 }
                 outcome = Outcome(folder: folder, ok: true, detail: details.joined(separator: " · "), date: Date())
                 notify("Transcript ready", name)
@@ -150,8 +148,12 @@ final class MeetingNotes {
                     .write(to: transcript, atomically: true, encoding: .utf8)
                 outcome = Outcome(folder: folder, ok: false, detail: error.localizedDescription, date: Date())
             }
+        } else if Self.claude != nil, Self.needsSummary(folder) {
+            let summary = await addSummary(to: folder, title: title, length: length, event: event)
+            outcome = Outcome(folder: folder, ok: true, detail: [title, length, summary].joined(separator: " · "), date: Date())
         }
 
+        guard recorded else { return }
         let compressed = folder.appendingPathComponent(hasVideo ? Self.compressed : Self.compressedAudio)
         guard let ffmpeg = Self.ffmpeg else { return }
         if !fileManager.fileExists(atPath: compressed.path) {
@@ -364,6 +366,33 @@ final class MeetingNotes {
             .filter { $0.hasPrefix("- ") || $0.hasPrefix("* ") }.count
     }
 
+    // A transcript with something said in it and no summary yet, e.g. because claude failed the first time.
+    private static func needsSummary(_ folder: URL) -> Bool {
+        guard let text = try? String(contentsOf: folder.appendingPathComponent(transcript), encoding: .utf8) else { return false }
+        return !text.contains("\n## Summary\n") && text.contains("\n## Transcript\n")
+            && ["**Me**", "**Them**", "**Speaker**"].contains { text.contains("\n\($0) · ") }
+    }
+
+    // Puts claude's summary above the transcript, and says how it went for the panel: how many action items, or
+    // that there's no summary.
+    private func addSummary(to folder: URL, title: String, length: String, event: MeetingCalendar.Event?) async -> String {
+        let transcript = folder.appendingPathComponent(Self.transcript)
+        setProgress(Progress(title: "Summarizing \(title)", detail: "\(length) · claude is writing it", folder: folder))
+        guard let claude = Self.claude, let summary = await summarize(transcript, claude: claude, event: event),
+              let body = try? String(contentsOf: transcript, encoding: .utf8), let marker = body.range(of: "## Transcript")
+        else { return "no summary" }
+        do {
+            try body.replacingCharacters(in: marker, with: "## Summary\n\n\(summary)\n\n## Transcript")
+                .write(to: transcript, atomically: true, encoding: .utf8)
+        } catch {
+            Log.write("Meeting \(folder.lastPathComponent): couldn't save the summary: \(error.localizedDescription)")
+            return "no summary"
+        }
+        Log.write("Meeting \(folder.lastPathComponent): summarized")
+        let items = Self.actionItems(in: summary)
+        return items == 0 ? "summarized" : "\(items) action item\(items == 1 ? "" : "s")"
+    }
+
     private func summarize(_ transcript: URL, claude: URL, event: MeetingCalendar.Event?) async -> String? {
         var prompt = Self.summaryPrompt
         if let event {
@@ -371,14 +400,19 @@ final class MeetingNotes {
             prompt += event.attendees.isEmpty ? "." : ", with " + ListFormatter.localizedString(byJoining: event.attendees)
                 + ". Them is one or more of these people; name them where the transcript makes it clear who is speaking."
         }
-        let result = await run(claude, ["-p", prompt, "--tools", "", "--no-session-persistence"],
-                               input: transcript, directory: transcript.deletingLastPathComponent(), timeout: 600)
-        let summary = String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard result.status == 0, !summary.isEmpty else {
-            Log.write("Meeting \(transcript.deletingLastPathComponent().lastPathComponent): claude exited \(result.status)")
-            return nil
+        // claude can fail for a moment, e.g. while another claude process is refreshing the login, so it gets three
+        // tries. If all of them fail, the next launch tries again.
+        let name = transcript.deletingLastPathComponent().lastPathComponent
+        for (attempt, wait) in [0, 20, 90].enumerated() {
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            let result = await run(claude, ["-p", prompt, "--tools", "", "--no-session-persistence"],
+                                   input: transcript, directory: transcript.deletingLastPathComponent(), timeout: 600)
+            let summary = String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            if result.status == 0, !summary.isEmpty { return summary }
+            let reason = String(decoding: result.errors + result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            Log.write("Meeting \(name): claude exited \(result.status), try \(attempt + 1) of 3: \(reason.suffix(300))")
         }
-        return summary
+        return nil
     }
 
     // MARK: Compression
