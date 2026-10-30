@@ -97,7 +97,7 @@ An audio-only recording ends up as `recording.m4a` instead.
 - **Transcript.** Written on the Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`), labelled **Me** (your mic) and **Them** (the call). whisper detects the language, Turkish and English included, or you can pick one under **Transcript language** in Settings. Without headphones your mic also hears the call, and those duplicate lines are dropped. Without whisper, Gremlin falls back to Apple's speech recognition, which only knows a few languages.
 - **Summary.** If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items in English at the top, using your Claude login rather than an API key.
 - **Names.** With calendar access, a recording is named after the event it happened during, and the transcript and summary list who was invited.
-- **Smaller copy.** [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) compresses the video with x265 at CRF 26 and mixes the call and your mic into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call takes roughly 15 minutes on an M5.
+- **Smaller copy.** [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) compresses the video with x265 at CRF 26 and mixes the call and your mic into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call takes roughly 15 minutes on an M5, and the panel shows the percentage as it goes.
 
 <details>
 <summary><b>Recording details</b></summary>

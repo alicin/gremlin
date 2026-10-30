@@ -157,10 +157,16 @@ final class MeetingNotes {
         let compressed = folder.appendingPathComponent(hasVideo ? Self.compressed : Self.compressedAudio)
         guard let ffmpeg = Self.ffmpeg else { return }
         if !fileManager.fileExists(atPath: compressed.path) {
-            setProgress(Progress(title: "Compressing \(title)", detail: "Making a smaller copy of the " + (hasVideo ? "video" : "audio"),
-                                 folder: folder))
+            let heading = "Compressing \(title)"
+            let detail = "Making a smaller copy of the " + (hasVideo ? "video" : "audio")
+            setProgress(Progress(title: heading, detail: detail, folder: folder))
             let started = Date()
-            guard await compress(video, to: compressed, video: hasVideo, ffmpeg: ffmpeg) else { return }
+            let done = await compress(video, to: compressed, video: hasVideo, ffmpeg: ffmpeg) { [weak self] percent in
+                let update = Progress(title: heading, detail: "\(percent)% · \(detail)", folder: folder)
+                guard let self, self.progress?.title == heading, self.progress != update else { return }
+                self.setProgress(update)
+            }
+            guard done else { return }
             let before = (try? fileManager.attributesOfItem(atPath: video.path)[.size] as? Int) ?? 0
             let after = (try? fileManager.attributesOfItem(atPath: compressed.path)[.size] as? Int) ?? 0
             Log.write("Meeting \(name): compressed \(before / 1_000_000) MB to \(after / 1_000_000) MB in \(Int(Date().timeIntervalSince(started)))s")
@@ -417,8 +423,11 @@ final class MeetingNotes {
 
     // MARK: Compression
 
-    private func compress(_ recording: URL, to output: URL, video: Bool, ffmpeg: URL) async -> Bool {
-        let audioTracks = (try? await AVURLAsset(url: recording).loadTracks(withMediaType: .audio).count) ?? 0
+    private func compress(_ recording: URL, to output: URL, video: Bool, ffmpeg: URL,
+                          onPercent: @escaping @MainActor (Int) -> Void) async -> Bool {
+        let asset = AVURLAsset(url: recording)
+        let audioTracks = (try? await asset.loadTracks(withMediaType: .audio).count) ?? 0
+        let seconds = (try? await asset.load(.duration).seconds) ?? 0
         var graph: [String] = []
         var maps: [String] = []
         if video {
@@ -434,7 +443,7 @@ final class MeetingNotes {
             maps += ["-map", "[a]"]
         }
         let partial = output.appendingPathExtension("part")
-        var arguments = ["-nostdin", "-loglevel", "error", "-y", "-i", recording.path]
+        var arguments = ["-nostdin", "-nostats", "-loglevel", "error", "-progress", "pipe:1", "-y", "-i", recording.path]
         if !graph.isEmpty { arguments += ["-filter_complex", graph.joined(separator: ";")] }
         arguments += maps
         if video {
@@ -442,7 +451,12 @@ final class MeetingNotes {
                           "-x265-params", "log-level=error"]
         }
         arguments += ["-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-f", "mp4", partial.path]
-        let result = await run(ffmpeg, arguments, quality: .utility, yieldsDuringCalls: true)
+        let result = await run(ffmpeg, arguments, quality: .utility, yieldsDuringCalls: true) { chunk in
+            guard seconds > 0, let written = Self.secondsWritten(in: chunk) else { return }
+            // 100% waits for ffmpeg to finish, since it still has to rewrite the file for +faststart.
+            let percent = min(99, Int(written / seconds * 100))
+            Task { @MainActor in onPercent(percent) }
+        }
         guard result.status == 0 else {
             Log.write("Meeting \(recording.deletingLastPathComponent().lastPathComponent): ffmpeg exited \(result.status): "
                       + String(decoding: result.errors, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
@@ -450,6 +464,13 @@ final class MeetingNotes {
             return false
         }
         return (try? FileManager.default.moveItem(at: partial, to: output)) != nil
+    }
+
+    // ffmpeg's -progress output is blocks of key=value lines. out_time_us is N/A until the first packet is written.
+    private nonisolated static func secondsWritten(in chunk: Data) -> Double? {
+        String(decoding: chunk, as: UTF8.self).split(separator: "\n").reversed().lazy
+            .compactMap { $0.hasPrefix("out_time_us=") ? Double($0.dropFirst("out_time_us=".count)) : nil }
+            .first.map { $0 / 1_000_000 }
     }
 
     // MARK: Tools
@@ -471,8 +492,8 @@ final class MeetingNotes {
     }
 
     private func run(_ executable: URL, _ arguments: [String], input: URL? = nil, directory: URL? = nil,
-                     timeout: TimeInterval? = nil, quality: QualityOfService = .default,
-                     yieldsDuringCalls: Bool = false) async -> (status: Int32, output: Data, errors: Data) {
+                     timeout: TimeInterval? = nil, quality: QualityOfService = .default, yieldsDuringCalls: Bool = false,
+                     onOutput: (@Sendable (Data) -> Void)? = nil) async -> (status: Int32, output: Data, errors: Data) {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -481,11 +502,12 @@ final class MeetingNotes {
         process.standardInput = input.flatMap { try? FileHandle(forReadingFrom: $0) } ?? FileHandle.nullDevice
         current = process
         defer { current = nil }
-        return await Self.wait(for: process, timeout: timeout, yieldsDuringCalls: yieldsDuringCalls)
+        return await Self.wait(for: process, timeout: timeout, yieldsDuringCalls: yieldsDuringCalls, onOutput: onOutput)
     }
 
-    private nonisolated static func wait(for process: Process, timeout: TimeInterval?,
-                                         yieldsDuringCalls: Bool) async -> (status: Int32, output: Data, errors: Data) {
+    // With onOutput, standard output goes to it as it arrives and isn't kept.
+    private nonisolated static func wait(for process: Process, timeout: TimeInterval?, yieldsDuringCalls: Bool,
+                                         onOutput: (@Sendable (Data) -> Void)?) async -> (status: Int32, output: Data, errors: Data) {
         await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
                 let output = Pipe()
@@ -522,7 +544,12 @@ final class MeetingNotes {
                 var errorData = Data()
                 let group = DispatchGroup()
                 DispatchQueue.global().async(group: group) { errorData = errors.fileHandleForReading.readDataToEndOfFile() }
-                let outputData = output.fileHandleForReading.readDataToEndOfFile()
+                var outputData = Data()
+                if let onOutput {
+                    while case let chunk = output.fileHandleForReading.availableData, !chunk.isEmpty { onOutput(chunk) }
+                } else {
+                    outputData = output.fileHandleForReading.readDataToEndOfFile()
+                }
                 group.wait()
                 process.waitUntilExit()
                 calls?.cancel()
