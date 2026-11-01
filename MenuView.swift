@@ -153,6 +153,8 @@ struct MenuView: View {
             }
         }
         .padding(Self.padding)
+        // A new page is laid out at full size while the glass is still growing to fit it.
+        .clipShape(RoundedRectangle(cornerRadius: look.radius, style: .continuous))
         .legible()
         .surface(.panel)
     }
@@ -191,7 +193,8 @@ private extension AnyTransition {
     static func page(from edge: HorizontalEdge) -> AnyTransition {
         .asymmetric(insertion: .modifier(active: PageSlide(x: edge == .leading ? -28 : 28, blur: 5, opacity: 0),
                                          identity: PageSlide(x: 0, blur: 0, opacity: 1)),
-                    removal: .identity)
+                    // A removal with nothing to animate stays up for the whole animation, on top of the new page.
+                    removal: AnyTransition.opacity.animation(.linear(duration: 0)))
     }
 }
 
