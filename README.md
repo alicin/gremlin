@@ -6,8 +6,8 @@
 
 <p align="center">
   <b>A little Liquid Glass panel in the menu bar that fixes the everyday kinks of macOS.</b><br>
-  It records meetings with a transcript, grabs text and colors off the screen,<br>
-  and unsticks the Dock, Finder, Notification Center and Universal Control.
+  It records meetings with a transcript, grabs text and colors off the screen, sends every link<br>
+  to the right browser, and unsticks the Dock, Finder, Notification Center and Universal Control.
 </p>
 
 <p align="center">
@@ -23,6 +23,7 @@
   <a href="#keep-awake">Keep Awake</a> ·
   <a href="#ipad-as-a-display">iPad</a> ·
   <a href="#universal-control">Universal Control</a> ·
+  <a href="#links">Links</a> ·
   <a href="#restart">Restart</a> ·
   <a href="#make-the-glass-yours">Glass</a> ·
   <a href="#install">Install</a>
@@ -154,6 +155,123 @@ The card in the panel shows what the watcher sees and when it last reset, with *
 
 To pair, install Gremlin on both Macs, choose **Pair Another Mac…** on each, and click Pair on both if the 6-digit codes match. The details are [further down](#how-the-universal-control-fix-works).
 
+## Links
+
+Make Gremlin your default browser and every link you click goes through it first, then on to the right browser, profile or app. It removes the tracking on the way. It's off until you press **Make Default** on the Links page, and macOS asks you to confirm.
+
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-picker-dark.jpg"><img src="docs/links-picker-light.jpg" width="560" alt="The picker: a link's address above a row of browsers and profiles, each with a key to press"></picture>
+</p>
+
+### The picker
+
+When a link is set to **Ask Every Time**, a panel opens by the pointer. The app you clicked in stays in front until you choose.
+
+| To | Do this |
+| --- | --- |
+| Open it | Click a browser, press its letter or number, or use the arrows or <kbd>⌃</kbd><kbd>⇥</kbd> and then <kbd>Return</kbd> |
+| Open it behind what you're doing | Hold <kbd>⌃</kbd> while choosing |
+| Always open this site there | <kbd>⌘</kbd>-click the browser, which makes a rule |
+| Open a new or private window | Right-click the browser |
+| Copy the link | <kbd>⌘</kbd><kbd>C</kbd> |
+| Drop it | <kbd>Esc</kbd> or click elsewhere |
+
+Links that arrive while it's open join the waiting one, and your choice covers them all.
+
+### Where links go
+
+<table>
+<tr>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-dark.jpg"><img src="docs/links-light.jpg" alt="The Links page with the default browser, rules, cleanup switches and a box for testing a link"></picture></td>
+<td>
+
+Each link takes the first of these that fits:
+
+1. **Holding <kbd>Fn</kbd>**: the alternative you picked. The picker unless you change it, and the key can be Option, Control or Shift for keyboards that don't send Fn.
+2. **Your rules**, top to bottom.
+3. **Apps**: links for Zoom, Microsoft Teams, Figma, Linear, Notion, Spotify and Discord open in their apps, and Google Meet opens in Chrome, when installed. Each has a switch.
+4. **The default**: a browser, a profile, or the picker.
+
+**Where would this link go?** runs a pasted link through all of it and shows the result, without opening anything. The main panel's Links card switches the default in one click, and **History** shows where recent links went and why.
+
+</td>
+</tr>
+</table>
+
+### Rules
+
+<table>
+<tr>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-rules-dark.jpg"><img src="docs/links-rules-light.jpg" alt="The Rules page listing four rules, with a script box for every link"></picture></td>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-rule-dark.jpg"><img src="docs/links-rule-light.jpg" alt="Editing a rule: name, destination, link conditions, source apps and a script"></picture></td>
+</tr>
+</table>
+
+A rule opens matching links in a browser, a profile, a private window, the picker or any other app. It can match on:
+
+- **The link**: a domain (`github.com` covers its subdomains, and `github.com/bunniesinc` only that path), what the link starts with, or a regex.
+- **The app it was clicked in**: helpers count as their app, so Slack's helper process is Slack.
+
+With both, both must fit. A rule can also change the link with a script once it has matched, and **Try a link** checks a rule as you write it. **Copy Rules** and **Paste Rules** move them as JSON, and everything lives in `~/Library/Application Support/Gremlin/links.json`.
+
+Scripts are JavaScript with `url` and `sourceApp`. Return a new link, or nothing to leave it alone:
+
+```js
+return url.replace("https://old.example.com", "https://new.example.com")
+```
+
+A script under **Before any rule** can change which rule matches, while one on a rule can't. A script that throws or takes over a second is skipped and the link carries on.
+
+### Cleaning up links
+
+Every link goes through these in order, and each has a switch:
+
+1. **Unwrap redirect links**: Google, Outlook SafeLinks, Proofpoint, Facebook, Instagram, LinkedIn, Slack, YouTube and others wrap outgoing links, and Gremlin takes the real one out without asking the network.
+2. **Expand short links**: bit.ly, t.co, tinyurl and about 40 others, plus any you add. Gremlin asks the shortener and stops at its answer, so the page itself never sees the request. If it takes over 2.5 seconds, the short link opens as it is.
+3. **Remove tracking**: `utm_*`, `fbclid`, `gclid` and about 160 others, plus names that only mean tracking on certain sites, like `s` and `t` on X or `si` on YouTube.
+
+### Browsers and profiles
+
+<table>
+<tr>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-browsers-dark.jpg"><img src="docs/links-browsers-light.jpg" alt="The Browsers page, with a switch, an order and a key for each browser and profile"></picture></td>
+<td>
+
+Gremlin finds every browser on the Mac. Choose which ones the picker shows, their order, and the key for each.
+
+**Find Profiles** reads the profiles of Chrome, Edge, Brave, Vivaldi and Firefox, and macOS may ask first. Gremlin only looks when you press it. Each profile can then be shown in the picker or used in a rule.
+
+Private windows work in Chrome, Edge, Brave, Vivaldi, Opera, Firefox, Zen and LibreWolf.
+
+</td>
+</tr>
+</table>
+
+### From anywhere else
+
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>L</kbd> opens the link on the clipboard.
+- **Open Links with Gremlin** and **Open Links with Gremlin Picker** are services for selected text. Turn them on in System Settings › Keyboard › Keyboard Shortcuts › Services. Hold <kbd>⌥</kbd> to get the picker from the first one.
+- Handoff from an iPhone or iPad goes through Gremlin like any other link.
+- A `gremlin:` link does it from Shortcuts or a script, which also lets a Focus or an automation change the default:
+
+| Link | Does |
+| --- | --- |
+| `gremlin:open?url=https%3A%2F%2Fexample.com` | Routes it like a click. `url` can repeat. |
+| `gremlin:open?url=…&prompt` | Shows the picker |
+| `gremlin:open?url=…&app=org.mozilla.firefox` | Opens it there, skipping the rules. Add `&profile=Work` or `&private`. |
+| `gremlin:set-default?app=com.apple.Safari` | Changes the default. Use `?prompt` for the picker. |
+
+Only `http` and `https` links are accepted this way, because any page can open a `gremlin:` link.
+
+### What it can't do
+
+- **Links clicked inside a browser** stay in that browser. macOS only hands over links that open from outside one.
+- **Universal Links** go straight to their app, because overriding them takes an entitlement from Apple.
+- **Profiles** in Safari and Arc, and Safari private windows, have no way in from outside.
+- **Firefox profiles** made with its newer profile switcher aren't found, only the ones listed in `profiles.ini`.
+- **Email links** aren't handled, only web links.
+- **Source apps** are a best guess for command line tools. `open` has often exited by the time the link arrives, so the app in front counts instead.
+
 ## Restart
 
 <table>
@@ -258,6 +376,7 @@ macOS asks for each permission the first time a feature needs it:
 | Local Network | Pairing with another Mac |
 | Notifications | Universal Control reset results, finished transcripts |
 | Calendars | Naming meeting recordings after the event |
+| App data | Reading browser profiles, only when you press **Find Profiles** |
 
 The shortcuts use Carbon hotkeys, so they need no permission.
 

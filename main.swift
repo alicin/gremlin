@@ -32,7 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ]
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let model = MenuModel()
+    private let links = Links()
+    private lazy var model = MenuModel(links: links)
     private lazy var panel = MenuPanel(model: model)
     private var tick: Timer?
     private var remoteStatus: String?
@@ -61,6 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeys.shared.register(kVK_ANSI_A, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+A") { [weak self] in
             self?.meetings.toggle(audioOnly: true)
         }
+        HotKeys.shared.register(kVK_ANSI_L, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+L") { [weak self] in
+            self?.links.openCopiedLink()
+        }
+        NSApp.servicesProvider = links
         sidecar.onChange = { [weak self] in self?.refresh() }
         meetings.onChange = { [weak self] in self?.refresh() }
         keepAwake.onChange = { [weak self] in self?.refresh() }
@@ -80,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.thisMac = SCDynamicStoreCopyComputerName(nil, nil) as String? ?? "This Mac"
         model.perform = { [weak self] action in self?.perform(action) }
         panel.onOpen = { [weak self] in
+            self?.links.refresh()
             self?.model.awakeOthers = KeepAwake.others()
             self?.checkRemote()
             self?.refresh()
@@ -92,6 +98,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(statusClicked)
         statusItem.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
         refresh()
+    }
+
+    // Both link types and .html files arrive here. It can be before applicationDidFinishLaunching, when a link is what launched Gremlin.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let sender = event?.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value
+        links.receive(urls, from: sender.flatMap { NSRunningApplication(processIdentifier: $0) })
+    }
+
+    // Handoff from an iPhone or iPad goes to the default browser.
+    func application(_ application: NSApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        guard let url = userActivity.webpageURL else { return false }
+        links.receive([url], from: nil)
+        return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -310,6 +331,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             setLogin(on)
         case .setLanguage(let code):
             defaults.set(code, forKey: "meetingLanguage")
+        case .closePanel:
+            panel.close()
         case .quit:
             NSApp.terminate(nil)
         }

@@ -58,8 +58,20 @@ final class MenuPanel: NSObject, NSWindowDelegate {
             MainActor.assumeIsolated { self?.close() }
         } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
-                  event.keyCode == UInt16(kVK_ANSI_Q) else { return event }
+            let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            guard flags.contains(.command) else { return event }
+            // Gremlin has no main menu, and without one nothing sends these to a text field.
+            let edit: Selector? = switch (Int(event.keyCode), flags) {
+            case (kVK_ANSI_X, .command): #selector(NSText.cut(_:))
+            case (kVK_ANSI_C, .command): #selector(NSText.copy(_:))
+            case (kVK_ANSI_V, .command): #selector(NSText.paste(_:))
+            case (kVK_ANSI_A, .command): #selector(NSText.selectAll(_:))
+            case (kVK_ANSI_Z, .command): Selector(("undo:"))
+            case (kVK_ANSI_Z, [.command, .shift]): Selector(("redo:"))
+            default: nil
+            }
+            if let edit { return NSApp.sendAction(edit, to: nil, from: nil) ? nil : event }
+            guard flags == .command, event.keyCode == UInt16(kVK_ANSI_Q) else { return event }
             self?.model.perform(.quit)
             return nil
         } as Any)

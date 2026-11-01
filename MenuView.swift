@@ -8,6 +8,12 @@ final class MenuModel: ObservableObject {
         case restart
         case universalControl
         case settings
+        case links
+        case linkRules
+        case linkRule
+        case linkBrowsers
+        case linkApps
+        case linkHistory
     }
 
     enum Action: Equatable {
@@ -34,6 +40,7 @@ final class MenuModel: ObservableObject {
         case restartAll
         case setLogin(Bool)
         case setLanguage(String?)
+        case closePanel
         case quit
     }
 
@@ -117,6 +124,11 @@ final class MenuModel: ObservableObject {
     @Published var confirmRestartAll = false
 
     var perform: (Action) -> Void = { _ in }
+    let links: Links
+
+    init(links: Links) {
+        self.links = links
+    }
 
     func go(_ page: Page) {
         // A long, soft ease-out that settles without overshooting.
@@ -152,6 +164,12 @@ struct MenuView: View {
             case .restart: RestartPage(model: model).transition(.page(from: .trailing))
             case .universalControl: UniversalControlPage(model: model).transition(.page(from: .trailing))
             case .settings: SettingsPage(model: model).transition(.page(from: .trailing))
+            case .links: LinksPage(model: model, links: model.links).transition(.page(from: .trailing))
+            case .linkRules: LinkRulesPage(model: model, links: model.links).transition(.page(from: .trailing))
+            case .linkRule: LinkRulePage(model: model, links: model.links).transition(.page(from: .trailing))
+            case .linkBrowsers: LinkBrowsersPage(model: model, links: model.links).transition(.page(from: .trailing))
+            case .linkApps: LinkAppsPage(model: model, links: model.links).transition(.page(from: .trailing))
+            case .linkHistory: LinkHistoryPage(model: model, links: model.links).transition(.page(from: .trailing))
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { model.contentHeight = $0 }
@@ -191,6 +209,7 @@ private struct MainPage: View {
             KeepAwakeSection(model: model)
             if let ipad = model.ipad { IPadCard(ipad: ipad, perform: model.perform) }
             UniversalControlCard(model: model)
+            LinksCard(model: model, links: model.links)
             RestartSection(model: model)
             Rectangle().fill(look.fill(0.12)).frame(height: 1)
             HStack {
@@ -563,7 +582,7 @@ private struct RestartSection: View {
 
 // MARK: Pages
 
-private struct PageHeader<Trailing: View>: View {
+struct PageHeader<Trailing: View>: View {
     let title: String
     let back: () -> Void
     @ViewBuilder var trailing: Trailing
@@ -578,7 +597,7 @@ private struct PageHeader<Trailing: View>: View {
     }
 }
 
-private struct SectionTitle: View {
+struct SectionTitle: View {
     let text: String
     @Environment(\.glass) private var look
 
@@ -804,29 +823,49 @@ private struct SettingsPage: View {
     }
 
     private func group(_ title: String, @ViewBuilder rows: () -> some View) -> some View {
+        PageGroup(title: title, rows: rows)
+    }
+
+    private func row(_ title: String, _ detail: String?, @ViewBuilder trailing: () -> some View) -> some View {
+        PageRow(title: title, detail: detail, trailing: trailing)
+    }
+
+    private func toggle(_ title: String, _ detail: String, key: String) -> some View {
+        row(title, detail) {
+            GlassSwitch(label: title, isOn: model.switches[key] ?? false) { model.perform(.setSwitch(key, !(model.switches[key] ?? false))) }
+        }
+    }
+}
+
+struct PageGroup<Rows: View>: View {
+    let title: String
+    @ViewBuilder var rows: Rows
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionTitle(text: title)
-            VStack(alignment: .leading, spacing: 12) { rows() }
+            VStack(alignment: .leading, spacing: 12) { rows }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .surface(.card)
         }
     }
+}
 
-    private func row(_ title: String, _ detail: String?, @ViewBuilder trailing: () -> some View) -> some View {
+struct PageRow<Trailing: View>: View {
+    let title: String
+    let detail: String?
+    @ViewBuilder var trailing: Trailing
+    @Environment(\.glass) private var look
+
+    var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 13, weight: .semibold))
                 if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(look.sub) }
             }
             Spacer(minLength: 0)
-            trailing().font(.system(size: 12)).foregroundStyle(look.sub)
-        }
-    }
-
-    private func toggle(_ title: String, _ detail: String, key: String) -> some View {
-        row(title, detail) {
-            GlassSwitch(label: title, isOn: model.switches[key] ?? false) { model.perform(.setSwitch(key, !(model.switches[key] ?? false))) }
+            trailing.font(.system(size: 12)).foregroundStyle(look.sub)
         }
     }
 }
