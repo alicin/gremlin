@@ -14,6 +14,8 @@ final class MenuModel: ObservableObject {
         case linkBrowsers
         case linkApps
         case linkHistory
+        case drives
+        case drive
     }
 
     enum Action: Equatable {
@@ -125,9 +127,11 @@ final class MenuModel: ObservableObject {
 
     var perform: (Action) -> Void = { _ in }
     let links: Links
+    let drives: Drives
 
-    init(links: Links) {
+    init(links: Links, drives: Drives) {
         self.links = links
+        self.drives = drives
     }
 
     func go(_ page: Page) {
@@ -172,6 +176,8 @@ struct MenuView: View {
             case .linkBrowsers: LinkBrowsersPage(model: model, links: model.links).transition(.page(from: .trailing))
             case .linkApps: LinkAppsPage(model: model, links: model.links).transition(.page(from: .trailing))
             case .linkHistory: LinkHistoryPage(model: model, links: model.links).transition(.page(from: .trailing))
+            case .drives: DrivesPage(model: model, drives: model.drives).transition(.page(from: .trailing))
+            case .drive: DrivePage(model: model, drives: model.drives).transition(.page(from: .trailing))
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { model.contentHeight = $0 }
@@ -213,6 +219,7 @@ private struct MainPage: View {
             if let ipad = model.ipad { IPadCard(ipad: ipad, perform: model.perform) }
             UniversalControlCard(model: model)
             LinksCard(model: model, links: model.links)
+            DrivesCard(model: model, drives: model.drives)
             RestartSection(model: model)
             Rectangle().fill(look.fill(0.12)).frame(height: 1)
             HStack {

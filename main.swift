@@ -33,7 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let links = Links()
-    private lazy var model = MenuModel(links: links)
+    private let drives = Drives()
+    private lazy var model = MenuModel(links: links, drives: drives)
     private lazy var panel = MenuPanel(model: model)
     private var tick: Timer?
     private var remoteStatus: String?
@@ -78,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refresh()
         }
         link.start()
+        drives.start()
         for item in switches where defaults.bool(forKey: item.key) {
             item.feature.start()
         }
@@ -86,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.perform = { [weak self] action in self?.perform(action) }
         panel.onOpen = { [weak self] in
             self?.links.refresh()
+            self?.drives.refresh()
             self?.model.awakeOthers = KeepAwake.others()
             self?.checkRemote()
             self?.refresh()
@@ -116,8 +119,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard meetings.recording != nil else { return .terminateNow }
-        meetings.finish { sender.reply(toApplicationShouldTerminate: true) }
+        guard meetings.recording != nil || drives.anyMounted else { return .terminateNow }
+        let pending = DispatchGroup()
+        if meetings.recording != nil {
+            pending.enter()
+            meetings.finish { pending.leave() }
+        }
+        if drives.anyMounted {
+            pending.enter()
+            drives.ejectAll { pending.leave() }
+        }
+        pending.notify(queue: .main) { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
     }
 
@@ -371,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+Askpass.answerIfAsked()
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate

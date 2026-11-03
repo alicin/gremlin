@@ -7,7 +7,8 @@
 <p align="center">
   <b>A little Liquid Glass panel in the menu bar that fixes the everyday kinks of macOS.</b><br>
   It records meetings with a transcript, grabs text and colors off the screen, sends every link<br>
-  to the right browser, and unsticks the Dock, Finder, Notification Center and Universal Control.
+  to the right browser, mounts your servers in Finder, and unsticks the Dock, Finder,<br>
+  Notification Center and Universal Control.
 </p>
 
 <p align="center">
@@ -24,6 +25,7 @@
   <a href="#ipad-as-a-display">iPad</a> ·
   <a href="#universal-control">Universal Control</a> ·
   <a href="#links">Links</a> ·
+  <a href="#drives">Drives</a> ·
   <a href="#restart">Restart</a> ·
   <a href="#make-the-glass-yours">Glass</a> ·
   <a href="#install">Install</a>
@@ -272,6 +274,61 @@ Only `http` and `https` links are accepted this way, because any page can open a
 - **Email links** aren't handled, only web links.
 - **Source apps** are a best guess for command line tools. `open` has often exited by the time the link arrives, so the app in front counts instead.
 
+## Drives
+
+Mount a folder on any server you can `ssh` into, and it shows up in Finder like a disk. Gremlin connects the way `ssh` does in Terminal, with your `~/.ssh/config`, keys, agent and ProxyJump, so a host that works there works here. There's nothing to install on either end: no macFUSE, no kernel extension, and the server only needs SFTP, which comes with OpenSSH.
+
+<table>
+<tr>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/drives-dark.jpg"><img src="docs/drives-light.jpg" alt="The Drives page with a mounted drive, two drives to mount, a host from the SSH config, and where drives are mounted"></picture></td>
+<td>
+
+Add a drive with **+** on the Drives page, or one of the hosts Gremlin found in your SSH config. It needs a name, the host, and a folder, which is your home folder if you leave it empty.
+
+**Mount** opens it in Finder. It lives in `~/Drives/<name>`, so Terminal and every app can use it like any folder. The Drives card on the main panel mounts, opens and ejects drives in one click.
+
+- **Mount when Gremlin starts** brings it back after login, and again once the network returns.
+- **Read only** refuses every change from this Mac, for looking around a server safely.
+- After sleep or a network change, a dropped connection comes back by itself the next time something reads or writes. Reads and writes caught by the drop are retried on the new connection.
+- When the server wants a password or passphrase, or ssh meets a host it hasn't seen, Gremlin asks in a dialog. It can keep the password in your Keychain.
+- Quitting Gremlin ejects every drive first. Ejecting from Finder works too.
+
+</td>
+</tr>
+</table>
+
+### Mac files stay on the Mac
+
+<table>
+<tr>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/drives-edit-dark.jpg"><img src="docs/drives-edit-light.jpg" alt="Editing a drive: name, host with a menu of SSH config hosts, folder, and the Mount when Gremlin starts and Read only switches"></picture></td>
+<td>
+
+On a server like this, macOS keeps Finder tags, download info and other extended attributes in a `._` file next to each file, and Finder leaves a `.DS_Store` in every folder you open. With **Keep Mac files here** on, Gremlin keeps them in `~/Library/Application Support/Gremlin/Drives` instead. The server stays clean and this Mac still sees them. `._` files already on the server are hidden.
+
+</td>
+</tr>
+</table>
+
+### How it works
+
+Each drive runs `ssh -s <host> sftp` and speaks SFTP over it. Gremlin hands those files to macOS's own NFS client from a small NFS 3 server on 127.0.0.1, and mounts it without admin rights. A user can mount NFS on a folder they own, which is why drives live in `~/Drives` and not `/Volumes`.
+
+- Nothing else can use the server: it listens on 127.0.0.1 only, refuses requests from other accounts on this Mac, signs its file handles with a random secret, and hands out the root handle only while Gremlin's own mount runs.
+- The mount is soft, with a dead timeout of 45 seconds. If Gremlin crashes with a drive mounted, apps get an error instead of hanging and macOS unmounts it. Gremlin clears any mount left over when it next starts.
+- A write is on the server before macOS is told it's done. Names are sent in NFC, the way Linux spells them, so an `ş` or `ü` typed on the Mac matches the file made on the server.
+- ssh uses your config minus what doesn't suit a file connection: no port forwardings, remote command or terminal, and it never becomes the connection master a terminal session would rely on.
+
+### What it can't do
+
+- **Times** are kept to the second, as SFTP keeps them.
+- **The Trash** doesn't exist on a server, so deleting in Finder asks to delete right away, as on any network volume.
+- **Changes made on the server** show up within about 15 seconds.
+- **Permissions** come from the server's mode bits. Groups beyond your primary one aren't visible, so Finder can offer to edit a file the server then won't let you save.
+- **File locks** only hold on this Mac.
+- **Symlinks** to absolute paths outside the drive's folder point into this Mac, so they look broken. Ones that stay inside the folder work.
+- **Spotlight** doesn't index it.
+
 ## Restart
 
 <table>
@@ -373,7 +430,7 @@ macOS asks for each permission the first time a feature needs it:
 | Screen Recording | Grab Text, recording meetings (audio-only ones too, since the call's sound comes through screen capture) |
 | Microphone | Recording your side of a meeting |
 | Accessibility | Auto-Fix Lost Focus, and the paste step of Plain Paste (without it, the clipboard is still made plain and you press <kbd>⌘</kbd><kbd>V</kbd>) |
-| Local Network | Pairing with another Mac |
+| Local Network | Pairing with another Mac, and drives on servers in your local network |
 | Notifications | Universal Control reset results, finished transcripts |
 | Calendars | Naming meeting recordings after the event |
 | App data | Reading browser profiles, only when you press **Find Profiles** |
@@ -437,6 +494,7 @@ rm -rf ~/Movies/Meetings  # only if you don't want the recordings
 rm -rf ~/Library/Application\ Support/Gremlin
 defaults delete com.bunniesinc.gremlin
 security delete-generic-password -s com.bunniesinc.gremlin.peer ~/Library/Keychains/login.keychain-db
+security delete-generic-password -s "Gremlin Drives" ~/Library/Keychains/login.keychain-db  # once for each saved drive password
 security delete-identity -c "Gremlin Code Signing" ~/Library/Keychains/login.keychain-db
 ```
 
