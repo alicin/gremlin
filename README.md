@@ -7,8 +7,8 @@
 <p align="center">
   <b>A little Liquid Glass panel in the menu bar that fixes the everyday kinks of macOS.</b><br>
   It records meetings with a transcript, grabs text and colors off the screen, sends every link<br>
-  to the right browser, mounts your servers in Finder, and unsticks the Dock, Finder,<br>
-  Notification Center and Universal Control.
+  to the right browser, mounts your servers in Finder, puts your displays back the way you had them,<br>
+  and unsticks the Dock, Finder, Notification Center and Universal Control.
 </p>
 
 <p align="center">
@@ -26,6 +26,7 @@
   <a href="#universal-control">Universal Control</a> ·
   <a href="#links">Links</a> ·
   <a href="#drives">Drives</a> ·
+  <a href="#displays">Displays</a> ·
   <a href="#restart">Restart</a> ·
   <a href="#make-the-glass-yours">Glass</a> ·
   <a href="#install">Install</a>
@@ -328,6 +329,54 @@ Each drive runs `ssh -s <host> sftp` and speaks SFTP over it. Gremlin hands thos
 - **File locks** only hold on this Mac.
 - **Symlinks** to absolute paths outside the drive's folder point into this Mac, so they look broken. Ones that stay inside the folder work.
 - **Spotlight** doesn't index it.
+
+## Displays
+
+Save how your displays are arranged and put it back in one click: where each one sits, which has the menu bar, its resolution and refresh rate, its rotation, and which ones mirror which. Gremlin knows a display by its name, not by the port or hub it's plugged into, so a layout still fits after a USB-C hub brings the displays up in a different order.
+
+<table>
+<tr>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/displays-dark.jpg"><img src="docs/displays-light.jpg" alt="The Displays page: a to-scale drawing of the built-in display and two LG monitors, one of them portrait, above three saved layouts"></picture></td>
+<td>
+
+**+** on the Displays page saves the arrangement you have now as a layout. The drawing at the top shows the displays as they sit, to scale, with the menu bar on the main one.
+
+**Apply** puts a layout back. The Displays card on the main panel applies one in a click, and says when your displays are arranged as one you saved.
+
+- **Apply when these displays connect** puts a layout back by itself whenever exactly its displays are connected, and after sleep if they've moved. The first layout saved for a set of displays does this, and one layout per set can.
+- Arranging displays by hand in System Settings isn't undone. Gremlin only steps in when displays come or go.
+- A layout with a display that isn't connected applies to the ones that are.
+
+</td>
+</tr>
+</table>
+
+### Telling displays apart
+
+<table>
+<tr>
+<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/displays-edit-dark.jpg"><img src="docs/displays-edit-light.jpg" alt="Editing a layout: its name, the drawing, each display with its resolution and rotation, and the Apply when these displays connect switch"></picture></td>
+<td>
+
+macOS numbers displays that share a name, like "LG HDR 4K (1)" and "(2)", in the order they show up, so a hub can swap the numbers. Gremlin matches displays by name, and two with the same name by the serial number each one reports, so the monitor on its side stays the one that's rotated. macOS's number decides only when the serial numbers are missing or the same. The built-in display is always the built-in display.
+
+**Use Current Layout** saves the arrangement you have now into the layout, for after you've moved things around.
+
+</td>
+</tr>
+</table>
+
+### How it works
+
+Positions, resolutions and mirroring go through CoreGraphics' display configuration and are saved the way System Settings saves them, so macOS keeps them too. Rotation has no public API, so Gremlin rotates through the MonitorPanel framework behind System Settings' Displays pane, checks it's there first, and says so when a display can't rotate rather than leave it on its side.
+
+A layout is applied by a short-lived copy of Gremlin. Once a process has rotated a display and changed the configuration, macOS can stop updating the rotation it reads back, so Gremlin itself only ever reads.
+
+### What it can't do
+
+- **Turning a display on or off**, HDR, brightness and color profiles aren't part of a layout.
+- **Two displays with the same name and no serial number** are told apart by macOS's (1) and (2), which can swap.
+- **Positions** are where macOS can put them: it closes gaps and overlaps, so a layout saved with a display that's now missing can come out shifted.
 
 ## Restart
 

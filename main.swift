@@ -34,7 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let links = Links()
     private let drives = Drives()
-    private lazy var model = MenuModel(links: links, drives: drives)
+    private let displays = Displays()
+    private lazy var model = MenuModel(links: links, drives: drives, displays: displays)
     private lazy var panel = MenuPanel(model: model)
     private var tick: Timer?
     private var remoteStatus: String?
@@ -80,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         link.start()
         drives.start()
+        displays.start()
         for item in switches where defaults.bool(forKey: item.key) {
             item.feature.start()
         }
@@ -89,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onOpen = { [weak self] in
             self?.links.refresh()
             self?.drives.refresh()
+            self?.displays.refresh()
             self?.model.awakeOthers = KeepAwake.others()
             self?.checkRemote()
             self?.refresh()
@@ -384,6 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 Askpass.answerIfAsked()
+DisplayHardware.applyIfAsked()
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate

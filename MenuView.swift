@@ -16,6 +16,8 @@ final class MenuModel: ObservableObject {
         case linkHistory
         case drives
         case drive
+        case displays
+        case displayLayout
     }
 
     enum Action: Equatable {
@@ -128,10 +130,12 @@ final class MenuModel: ObservableObject {
     var perform: (Action) -> Void = { _ in }
     let links: Links
     let drives: Drives
+    let displays: Displays
 
-    init(links: Links, drives: Drives) {
+    init(links: Links, drives: Drives, displays: Displays) {
         self.links = links
         self.drives = drives
+        self.displays = displays
     }
 
     func go(_ page: Page) {
@@ -178,6 +182,8 @@ struct MenuView: View {
             case .linkHistory: LinkHistoryPage(model: model, links: model.links).transition(.page(from: .trailing))
             case .drives: DrivesPage(model: model, drives: model.drives).transition(.page(from: .trailing))
             case .drive: DrivePage(model: model, drives: model.drives).transition(.page(from: .trailing))
+            case .displays: DisplaysPage(model: model, displays: model.displays).transition(.page(from: .trailing))
+            case .displayLayout: DisplayLayoutPage(model: model, displays: model.displays).transition(.page(from: .trailing))
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { model.contentHeight = $0 }
@@ -220,6 +226,7 @@ private struct MainPage: View {
             UniversalControlCard(model: model)
             LinksCard(model: model, links: model.links)
             DrivesCard(model: model, drives: model.drives)
+            DisplaysCard(model: model, displays: model.displays)
             RestartSection(model: model)
             Rectangle().fill(look.fill(0.12)).frame(height: 1)
             HStack {
