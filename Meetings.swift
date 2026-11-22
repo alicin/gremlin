@@ -26,7 +26,7 @@ final class Meetings: NSObject, SCStreamDelegate {
         let output: Bool
     }
 
-    static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Meetings")
+    nonisolated static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Meetings")
     // About -66 dBFS: any working mic's background noise is above it, and only a dead or muted input stays below.
     private static let signal: Float = 0.0005
 

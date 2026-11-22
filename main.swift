@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let displays = Displays()
     private lazy var model = MenuModel(links: links, drives: drives, displays: displays)
     private lazy var panel = MenuPanel(model: model)
+    private let recordings = Recordings()
+    private lazy var window = GremlinWindow(model: model, recordings: recordings)
+    private lazy var shelf = Shelf(model: model, recordings: recordings)
     private var tick: Timer?
     private var remoteStatus: String?
     private var remoteCheckedAt = Date.distantPast
@@ -67,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeys.shared.register(kVK_ANSI_L, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+L") { [weak self] in
             self?.links.openCopiedLink()
         }
+        HotKeys.shared.register(kVK_ANSI_G, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+G") { [weak self] in
+            self?.shelf.toggle()
+        }
         NSApp.servicesProvider = links
         sidecar.onChange = { [weak self] in self?.refresh() }
         meetings.onChange = { [weak self] in self?.refresh() }
@@ -96,6 +102,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.checkRemote()
             self?.refresh()
         }
+        let opened = { [weak self] in
+            self?.links.refresh()
+            self?.drives.refresh()
+            self?.displays.refresh()
+            self?.recordings.refresh()
+            self?.model.awakeOthers = KeepAwake.others()
+            self?.checkRemote()
+            self?.refresh()
+        }
+        window.onOpen = opened
+        shelf.onOpen = opened
+        window.onClose = { [weak self] in
+            self?.model.restarted = []
+            self?.model.confirmRestartAll = false
+        }
         panel.onClose = { [weak self] in
             self?.model.restarted = []
             self?.model.confirmRestartAll = false
@@ -104,6 +125,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(statusClicked)
         statusItem.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
         refresh()
+    }
+
+    // Opening Gremlin again from Finder, Spotlight or the Dock shows its window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        window.show()
+        return false
     }
 
     // Both link types and .html files arrive here. It can be before applicationDidFinishLaunching, when a link is what launched Gremlin.
@@ -179,6 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.recording = meetings.recording.map { .init(started: $0.started, audioOnly: $0.audioOnly, hearing: meetings.hearing) }
         model.starting = meetings.starting
         model.banners = banners()
+        if model.notesProgress != meetings.notes.progress {
+            // A finished job changes what's in the meeting folders.
+            if meetings.notes.progress == nil { recordings.refresh() }
+            model.notesProgress = meetings.notes.progress
+        }
 
         let until = keepAwake.until
         model.awakeStop = Self.awakeStop(until)
@@ -348,6 +380,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defaults.set(code, forKey: "meetingLanguage")
         case .closePanel:
             panel.close()
+        case .openWindow(let module):
+            panel.close()
+            window.show(module, page: true)
         case .quit:
             NSApp.terminate(nil)
         }

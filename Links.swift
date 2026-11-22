@@ -159,9 +159,12 @@ final class Links: NSObject, ObservableObject {
 
     var primary: LinkTarget { config.primary ?? LinkTarget(app: "com.apple.Safari") }
 
-    // The destinations the picker offers, in order, leaving out anything since uninstalled.
+    // The destinations the picker offers, in order, leaving out anything since uninstalled. Gremlin itself can end up
+    // in the list while it's the default browser, but opening a link "in Gremlin" goes nowhere.
     var shownTargets: [LinkTarget] {
-        config.shown.filter { target in browsers.contains { $0.id == target.app } || appURL(target.app) != nil }
+        config.shown.filter { target in
+            target.app != Bundle.main.bundleIdentifier && (browsers.contains { $0.id == target.app } || appURL(target.app) != nil)
+        }
     }
 
     // Everything that can be shown: each browser, then its profiles and private window.

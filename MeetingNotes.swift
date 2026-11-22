@@ -7,11 +7,11 @@ import Speech
 // picked up at launch.
 @MainActor
 final class MeetingNotes {
-    static let recording = "recording.mov"
-    static let compressed = "recording.mp4"
-    static let compressedAudio = "recording.m4a"
-    static let transcript = "transcript.md"
-    static let event = "event.json"
+    nonisolated static let recording = "recording.mov"
+    nonisolated static let compressed = "recording.mp4"
+    nonisolated static let compressedAudio = "recording.m4a"
+    nonisolated static let transcript = "transcript.md"
+    nonisolated static let event = "event.json"
 
     struct Progress: Equatable {
         let title: String
@@ -104,7 +104,7 @@ final class MeetingNotes {
     }
 
     // The folder's name without the date and time it starts with.
-    static func title(of folder: URL) -> String {
+    nonisolated static func title(of folder: URL) -> String {
         let name = folder.lastPathComponent
         guard let range = name.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}\.\d{2} "#, options: .regularExpression) else { return name }
         return String(name[range.upperBound...])

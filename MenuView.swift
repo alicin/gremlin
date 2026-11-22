@@ -45,6 +45,7 @@ final class MenuModel: ObservableObject {
         case setLogin(Bool)
         case setLanguage(String?)
         case closePanel
+        case openWindow(Module?)
         case quit
     }
 
@@ -110,6 +111,7 @@ final class MenuModel: ObservableObject {
     @Published var recording: Recording?
     @Published var starting = false
     @Published var banners: [Banner] = []
+    @Published var notesProgress: MeetingNotes.Progress?
     @Published var awakeStop = 0
     @Published var awakeText = "Off"
     @Published var awakeOthers: [String] = []
@@ -229,9 +231,10 @@ private struct MainPage: View {
             DisplaysCard(model: model, displays: model.displays)
             RestartSection(model: model)
             Rectangle().fill(look.fill(0.12)).frame(height: 1)
-            HStack {
+            HStack(spacing: 16) {
                 Button("Show Recordings") { model.perform(.showRecordings) }
                 Spacer()
+                Button("Open Gremlin") { model.perform(.openWindow(nil)) }
                 Button { model.go(.settings) } label: {
                     HStack(spacing: 4) {
                         Text("Settings")
