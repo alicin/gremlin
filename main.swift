@@ -430,6 +430,7 @@ app.setActivationPolicy(.accessory)
 // install.sh stops Gremlin with SIGTERM; quitting through AppKit lets a meeting recording finish writing.
 signal(SIGTERM, SIG_IGN)
 let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-terminate.setEventHandler { NSApp.terminate(nil) }
+// Quitting can wait on main-actor work, like ejecting drives, which can't run while this handler holds the main queue.
+terminate.setEventHandler { RunLoop.main.perform { NSApp.terminate(nil) } }
 terminate.resume()
 app.run()
