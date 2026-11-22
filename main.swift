@@ -176,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        pluck.stop()
         switches.forEach { $0.feature.stop() }
         meetings.notes.stop()
         keepAwake.stop()

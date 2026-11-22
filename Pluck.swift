@@ -4,8 +4,12 @@ import Vision
 
 final class Pluck {
     private var busy = false
+    private var sampler: NSColorSampler?
+    private var samplingSince = Date.distantPast
 
     func start() {
+        // Left over from a Gremlin killed mid-pick, it would block every click.
+        Self.endSamplerOverlay()
         HotKeys.shared.register(kVK_ANSI_1, cmdKey | shiftKey, name: "cmd+shift+1") { [weak self] in self?.grabText() }
         HotKeys.shared.register(kVK_ANSI_2, cmdKey | shiftKey, name: "cmd+shift+2") { [weak self] in self?.pickColor() }
         HotKeys.shared.register(kVK_ANSI_V, controlKey | optionKey | cmdKey, name: "ctrl+opt+cmd+V") { [weak self] in
@@ -54,17 +58,51 @@ final class Pluck {
         return text.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }
 
+    // The sampler's overlay belongs to a system process that keeps it over every screen, swallowing clicks, when
+    // the session ends badly: if the sampler is dropped, if Gremlin quits mid-pick, or sometimes after it answers.
     func pickColor() {
-        guard !busy else { return }
-        busy = true
-        NSColorSampler().show { color in
-            self.busy = false
-            guard let rgb = color?.usingColorSpace(.sRGB) else { return }
-            let hex = [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
-                .map { String(format: "%02x", Int((min(max($0, 0), 1) * 255).rounded())) }
-                .joined()
-            self.copy("#" + hex)
+        if sampler != nil {
+            // A session that never answered and shows nothing is dead, and shouldn't block picking again.
+            guard Date().timeIntervalSince(samplingSince) > 2, Self.samplerOverlay().isEmpty else { return }
         }
+        let sampler = NSColorSampler()
+        self.sampler = sampler
+        samplingSince = Date()
+        sampler.show { color in
+            DispatchQueue.main.async {
+                guard self.sampler === sampler else { return }
+                self.sampler = nil
+                if let rgb = color?.usingColorSpace(.sRGB) {
+                    let hex = [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
+                        .map { String(format: "%02x", Int((min(max($0, 0), 1) * 255).rounded())) }
+                        .joined()
+                    self.copy("#" + hex)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if self.sampler == nil { Self.endSamplerOverlay() }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        if sampler != nil { Self.endSamplerOverlay() }
+    }
+
+    private static func samplerOverlay() -> Set<pid_t> {
+        let samplers = Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.appkit.xpc.ColorSampler")
+            .map(\.processIdentifier))
+        guard !samplers.isEmpty else { return [] }
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        return Set(windows.compactMap { $0[kCGWindowOwnerPID as String] as? pid_t }).intersection(samplers)
+    }
+
+    // Only a kill takes the overlay down: NSRunningApplication can't terminate an XPC service.
+    private static func endSamplerOverlay() {
+        let samplers = samplerOverlay()
+        guard !samplers.isEmpty else { return }
+        Log.write("Pick Color: the color sampler stayed on screen, ending it")
+        samplers.forEach { kill($0, SIGKILL) }
     }
 
     func pasteAsPlainText() {
