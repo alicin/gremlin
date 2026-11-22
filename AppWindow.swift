@@ -36,11 +36,15 @@ final class GremlinWindow: NSObject, NSWindowDelegate {
         if page { navigator.selection = module }
         if window == nil { window = makeWindow() }
         onOpen?()
-        NSApp.setActivationPolicy(.regular)
         Self.installMenu()
         // Plain activate() is only a request, and macOS declines it when a hotkey or the menu bar opened the window.
         NSApp.activate(ignoringOtherApps: true)
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func toggle() {
+        if window?.isKeyWindow == true, NSApp.isActive { close() } else { show() }
     }
 
     func close() {
@@ -76,15 +80,9 @@ final class GremlinWindow: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         navigator.query = ""
         onClose?()
-        // Back to a menu bar app once the window is gone, after AppKit has finished closing it.
-        DispatchQueue.main.async {
-            if !NSApp.windows.contains(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
-                NSApp.setActivationPolicy(.accessory)
-            }
-        }
     }
 
-    // An accessory app has no menu bar of its own, so the window brings one with the usual edit and window commands.
+    // Gremlin never shows a menu bar, but its main menu still answers ⌘C, ⌘V, ⌘W and ⌘Q in the window.
     private static func installMenu() {
         guard NSApp.mainMenu?.items.first?.title != "Gremlin" else { return }
         let main = NSMenu()

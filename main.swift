@@ -139,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool != false
     }
 
-    // Opening Gremlin again from Finder, Spotlight or the Dock shows its window.
+    // Opening Gremlin again from Finder or Spotlight shows its window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         window.show()
         return false
@@ -181,12 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keepAwake.stop()
     }
 
-    // While recording, a click on the record button stops it, and a right-click or Control-click opens the panel.
+    // While recording, a click on the record button stops it, and a right-click or Control-click opens the window.
     @objc private func statusClicked() {
         let event = NSApp.currentEvent
         let secondary = event?.type == .rightMouseDown || event?.modifierFlags.contains(.control) == true
-        if meetings.recording != nil, !secondary, !panel.isOpen { return meetings.toggle() }
-        panel.toggle(below: statusItem.button)
+        if meetings.recording != nil, !secondary { return meetings.toggle() }
+        window.toggle()
     }
 
     private func checkRemote() {
