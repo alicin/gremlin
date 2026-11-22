@@ -125,6 +125,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(statusClicked)
         statusItem.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
         refresh()
+        if openedByHand(notification) { window.show() }
+    }
+
+    // Starting at login or to open a link keeps Gremlin in the menu bar.
+    private func openedByHand(_ notification: Notification) -> Bool {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let launch = event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue
+        if launch == OSType(keyAELaunchedAsLogInItem) {
+            Log.write("Started at login")
+            return false
+        }
+        return notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool != false
     }
 
     // Opening Gremlin again from Finder, Spotlight or the Dock shows its window.
