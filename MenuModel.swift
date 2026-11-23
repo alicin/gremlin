@@ -119,11 +119,15 @@ final class MenuModel: ObservableObject {
     let links: Links
     let drives: Drives
     let displays: Displays
+    let scrolling: ScrollDirection
+    let vpn: VPN
 
-    init(links: Links, drives: Drives, displays: Displays) {
+    init(links: Links, drives: Drives, displays: Displays, scrolling: ScrollDirection, vpn: VPN) {
         self.links = links
         self.drives = drives
         self.displays = displays
+        self.scrolling = scrolling
+        self.vpn = vpn
     }
 }
 

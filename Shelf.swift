@@ -286,6 +286,19 @@ final class ShelfState: ObservableObject {
             guard !all.isEmpty else { return "No drives yet" }
             if all.contains(where: { drives.status(of: $0).phase == .connecting }) { return "Connecting…" }
             return "\(all.filter { drives.status(of: $0).phase == .mounted }.count) of \(all.count) mounted"
+        case .scrolling:
+            let scrolling = model.scrolling
+            if scrolling.needsAccess { return "Needs Accessibility" }
+            let flipped = scrolling.devices.filter(scrolling.flips)
+            if flipped.isEmpty { return "Same as macOS" }
+            return flipped.count == 1 ? "Flipping \(flipped[0].title)" : "Flipping \(flipped.count) devices"
+        case .vpn:
+            let vpn = model.vpn
+            let others = vpn.others.filter { $0.state == .on }
+            var parts: [String] = []
+            if vpn.tailscaleTunnel != nil { parts.append(vpn.tailscaleOn ? "Tailscale on" : "Tailscale off") }
+            if !vpn.others.isEmpty { parts.append(others.count == 1 ? others[0].name : "\(others.count) of \(vpn.others.count) on") }
+            return parts.isEmpty ? "No VPNs" : parts.joined(separator: " · ")
         case .settings: return model.login ? "Opens at login" : "Version \(Self.version)"
         }
     }
@@ -295,6 +308,7 @@ final class ShelfState: ObservableObject {
         case .meetings: model.recording != nil || model.starting || model.notesProgress != nil
         case .keepAwake: model.awakeStop != 0
         case .ipad: model.ipad?.state == .connected
+        case .vpn: model.vpn.others.contains { $0.state == .on }
         default: false
         }
     }

@@ -1338,7 +1338,7 @@ struct HomeLinksWidget: View {
             Text("Every link in the right browser")
                 .font(.system(size: 19, weight: .bold, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.65)
             Text("Make Gremlin your default browser and it sends each link to the right browser, profile or app.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.88))
@@ -1348,5 +1348,67 @@ struct HomeLinksWidget: View {
             Button("Set up Links") { navigator.go(.links) }
                 .buttonStyle(CapsuleButton(tint: Color(hex: 0xD6336F), white: true))
         }
+    }
+}
+
+// MARK: - VPN
+
+struct HomeVPNWidget: View {
+    @EnvironmentObject private var vpn: VPN
+    @EnvironmentObject private var navigator: Navigator
+
+    var body: some View {
+        let on = vpn.others.filter { $0.state == .on }.count + (vpn.tailscaleOn ? 1 : 0)
+        HomeTile(.vpn) {
+            if !vpn.tunnels.isEmpty { TileNote(text: on == 0 ? "All off" : "\(on) on", dot: on == 0 ? nil : Palette.good) }
+        } content: {
+            if vpn.tunnels.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Spacer(minLength: 4)
+                    Text("Tailscale and WireGuard tunnels show up here once they're set up")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                let shown = Array(vpn.tunnels.prefix(3))
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(shown) { HomeTunnelRow(tunnel: $0) }
+                    Spacer(minLength: 0)
+                    if vpn.tunnels.count > 3 {
+                        Button { navigator.go(.vpn) } label: {
+                            Text("\(vpn.tunnels.count - 3) more").font(.system(size: 12, weight: .semibold)).foregroundStyle(Ink.ocean)
+                        }
+                        .buttonStyle(PressStyle())
+                    }
+                }
+                .padding(.top, 10)
+            }
+        }
+    }
+}
+
+private struct HomeTunnelRow: View {
+    let tunnel: VPNTunnel
+    @EnvironmentObject private var vpn: VPN
+
+    var body: some View {
+        let tailscale = tunnel.app == .tailscale
+        let on = tailscale ? vpn.tailscaleOn : tunnel.state == .on
+        let busy = tailscale ? vpn.tailscaleBusy : tunnel.busy
+        HStack(spacing: 7) {
+            if busy {
+                HomeSpinner(tint: Ink.ocean, size: 11, line: 1.75)
+            } else {
+                Circle().fill(on ? Palette.good : Color.secondary.opacity(0.5)).frame(width: 7, height: 7)
+                    .shadow(color: on ? Palette.good.opacity(0.6) : .clear, radius: 3)
+            }
+            Text(tunnel.name).font(.system(size: 13, weight: .semibold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.85)
+            Spacer(minLength: 4)
+            ToggleSwitch(isOn: on, tint: Palette.ocean, small: true, label: tunnel.name) { vpn.toggle(tunnel) }
+                .disabled(busy)
+        }
+        .frame(height: 24)
+        .help(tailscale ? "Tailscale" : tunnel.text)
     }
 }

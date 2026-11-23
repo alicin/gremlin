@@ -62,6 +62,7 @@ struct HomeScreen: View {
                         .frame(height: Self.bands[1] + extra * 0.25)
                         HStack(spacing: Self.gap) {
                             HomeMeetingsWidget().frame(width: wide)
+                            HomeVPNWidget().frame(width: column)
                             HomeLinksWidget().frame(maxWidth: .infinity)
                         }
                         .frame(height: Self.bands[2] + extra * 0.25)

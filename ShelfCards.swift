@@ -34,6 +34,8 @@ private struct ShelfModuleCard: View {
     @ObservedObject var links: Links
     @ObservedObject var drives: Drives
     @ObservedObject var displays: Displays
+    @ObservedObject var scrolling: ScrollDirection
+    @ObservedObject var vpn: VPN
     @ObservedObject var recordings: Recordings
     let module: Module
     let index: Int
@@ -44,6 +46,8 @@ private struct ShelfModuleCard: View {
         links = s.model.links
         drives = s.model.drives
         displays = s.model.displays
+        scrolling = s.model.scrolling
+        vpn = s.model.vpn
         recordings = s.recordings
         self.module = module
         self.index = index
@@ -88,6 +92,10 @@ private struct ShelfModuleCard: View {
             let rules = links.config.rules.count
             return "\(rules) \(rules == 1 ? "rule" : "rules")" + (links.config.removeTracking ? " · tracking removed" : "")
         case .drives: return "In ~/Drives, over SSH"
+        case .scrolling: return scrolling.macNatural ? "macOS scrolls naturally" : "macOS scrolls the standard way"
+        case .vpn:
+            let wireguard = vpn.others.count
+            return wireguard == 0 ? "Hide their icons in Menu Bar settings" : "\(wireguard) \(wireguard == 1 ? "tunnel" : "tunnels") in System Settings"
         case .settings: return "Gremlin \(ShelfState.version)"
         }
     }
@@ -109,6 +117,8 @@ private struct ShelfModuleBody: View {
         case .universalControl: ShelfUCBody(s: s, model: s.model)
         case .links: ShelfLinksBody(links: s.model.links)
         case .drives: ShelfDrivesBody(s: s, drives: s.model.drives)
+        case .scrolling: ShelfScrollingBody(scrolling: s.model.scrolling)
+        case .vpn: ShelfVPNBody(vpn: s.model.vpn)
         case .settings: ShelfSettingsBody(s: s, model: s.model)
         }
     }
@@ -130,6 +140,8 @@ private struct ShelfPeek: View {
         case .universalControl: ["Spots the moment it gives up", "Resets it, then tries again later", "Paired Macs can reset each other"]
         case .links: ["Rules by site and by app", "Strips tracking on the way", "Zoom and Figma links open in their apps"]
         case .drives: ["Any server you can ssh into", "Shows up in Finder like a disk", "Nothing to install on either end"]
+        case .scrolling: ["A direction for each mouse and trackpad", "Natural trackpad, standard mouse", "Lights up the device you're scrolling"]
+        case .vpn: ["Tailscale on and off, and its exit node", "Every WireGuard tunnel", "Copy any device's tailnet address"]
         case .settings: ["Open at login", "Transcript language", "Every shortcut in one place"]
         }
     }
@@ -1216,6 +1228,89 @@ private struct ShelfDriveRow: View {
     }
 }
 
+// MARK: - Scrolling card
+
+private struct ShelfScrollingBody: View {
+    @ObservedObject var scrolling: ScrollDirection
+
+    var body: some View {
+        VStack(spacing: 0) {
+            let shown = Array(scrolling.devices.prefix(4))
+            if shown.isEmpty { ShelfNote(text: "No mouse or trackpad found.") }
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, device in
+                let natural = scrolling.isNatural(device)
+                ShelfSettingRow(title: device.title, divider: index < shown.count - 1, height: 44) {
+                    Text(natural ? "Natural" : "Standard")
+                        .font(.system(size: 11))
+                        .foregroundStyle(scrolling.flips(device) ? AnyShapeStyle(Ink.tangerine) : AnyShapeStyle(.secondary))
+                    ToggleSwitch(isOn: natural, tint: Palette.tangerine, small: true, label: "Natural scrolling on \(device.title)") {
+                        scrolling.setNatural(!natural, for: device)
+                    }
+                }
+                .opacity(scrolling.connected.contains(device.key) ? 1 : 0.55)
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.top, 6)
+    }
+}
+
+// MARK: - VPN card
+
+private struct ShelfVPNBody: View {
+    @ObservedObject var vpn: VPN
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if vpn.tunnels.isEmpty {
+                ShelfNote(text: "No VPNs yet. Tailscale and WireGuard tunnels show up here once they're set up.")
+            }
+            ForEach(vpn.tunnels.prefix(4)) { tunnel in
+                ShelfTunnelRow(vpn: vpn, tunnel: tunnel)
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.top, 13)
+    }
+}
+
+private struct ShelfTunnelRow: View {
+    @ObservedObject var vpn: VPN
+    let tunnel: VPNTunnel
+
+    var body: some View {
+        let tailscale = tunnel.app == .tailscale
+        let on = tailscale ? vpn.tailscaleOn : tunnel.state == .on
+        let busy = tailscale ? vpn.tailscaleBusy : tunnel.busy
+        HStack(spacing: 9) {
+            Image(systemName: tailscale ? "point.3.filled.connected.trianglepath.dotted" : "lock.shield.fill")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(on ? AnyShapeStyle(ShelfMetrics.deep(Palette.ocean)) : AnyShapeStyle(.secondary))
+                .frame(width: 30, height: 30)
+                .background(ShelfMetrics.paperTint, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(tunnel.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text(tailscale ? ShelfVPN.tailscaleLine(vpn) : tunnel.text).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            if busy {
+                ShelfSpinner(tint: ShelfMetrics.deep(Palette.ocean), size: 14, line: 2)
+            } else {
+                ToggleSwitch(isOn: on, tint: Palette.ocean, small: true, label: tunnel.name) { vpn.toggle(tunnel) }
+            }
+        }
+    }
+}
+
+private enum ShelfVPN {
+    @MainActor static func tailscaleLine(_ vpn: VPN) -> String {
+        guard let state = vpn.tailscale else { return vpn.tailscaleOn ? "Connected" : "Off" }
+        if state.needsLogin { return "Needs you to log in" }
+        guard vpn.tailscaleOn else { return "Off" }
+        return state.address.map { "Connected · \($0)" } ?? "Connected"
+    }
+}
+
 // MARK: - Settings card
 
 private struct ShelfSettingsBody: View {
@@ -1885,6 +1980,8 @@ struct ShelfModulePage: View {
             case .universalControl: ShelfUCPage(s: s, model: s.model)
             case .links: ShelfLinksPage(s: s, links: s.model.links)
             case .drives: ShelfDrivesPage(s: s, drives: s.model.drives)
+            case .scrolling: ShelfScrollingPage(s: s, scrolling: s.model.scrolling)
+            case .vpn: ShelfVPNPage(s: s, vpn: s.model.vpn)
             case .settings, .meetings: ShelfSettingsPage(s: s, model: s.model)
             }
         }
@@ -2565,6 +2662,83 @@ private struct ShelfDrivesPage: View {
         }
         ShelfGhostCard(title: "Add a drive", detail: "Any host in ~/.ssh/config, or a new one.", symbol: "plus",
                        index: drives.config.drives.count) { s.openInGremlin(.drives) }
+    }
+}
+
+private struct ShelfScrollingPage: View {
+    @ObservedObject var s: ShelfState
+    @ObservedObject var scrolling: ScrollDirection
+
+    var body: some View {
+        ForEach(Array(scrolling.devices.enumerated()), id: \.element.id) { index, device in
+            let natural = scrolling.isNatural(device)
+            let connected = scrolling.connected.contains(device.key)
+            ShelfSub(s, device.key, device.title, status: natural ? "Natural scrolling" : "Standard scrolling", symbol: device.symbol,
+                     tint: connected ? Palette.tangerine : Palette.slate, index: index,
+                     footer: scrolling.flips(device) ? "Gremlin flips it" : "Same as macOS") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(connected ? device.connection : "\(device.connection) · not connected").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    ScrollDirectionDiagram(device: device, natural: natural, compact: true)
+                    ShelfNote(text: natural ? "The content follows your fingers, like on a phone." : "Rolling down moves down the page.", size: 12)
+                    Spacer(minLength: 0)
+                    ShelfSettingRow(title: "Natural scrolling", divider: false, height: 32) {
+                        ToggleSwitch(isOn: natural, tint: Palette.tangerine, small: true, label: "Natural scrolling on \(device.title)") {
+                            scrolling.setNatural(!natural, for: device)
+                        }
+                    }
+                }
+                .padding(13)
+            }
+        }
+    }
+}
+
+private struct ShelfVPNPage: View {
+    @ObservedObject var s: ShelfState
+    @ObservedObject var vpn: VPN
+
+    var body: some View {
+        ForEach(Array(vpn.tunnels.enumerated()), id: \.element.id) { index, tunnel in
+            let tailscale = tunnel.app == .tailscale
+            let on = tailscale ? vpn.tailscaleOn : tunnel.state == .on
+            let online = vpn.tailscale?.peers.filter(\.online).count ?? 0
+            ShelfSub(s, tunnel.id, tunnel.name, status: tailscale ? (on ? "Connected · \(online) online" : ShelfVPN.tailscaleLine(vpn)) : tunnel.text,
+                     symbol: tailscale ? "point.3.filled.connected.trianglepath.dotted" : "lock.shield.fill",
+                     tint: on ? Palette.ocean : Palette.slate, index: index, footer: tailscale ? "Tailscale" : tunnel.app == .wireguard ? "WireGuard" : "VPN") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if tailscale, on, let state = vpn.tailscale {
+                        if let address = state.address {
+                            Button { vpn.copy(address) } label: {
+                                Label(address, systemImage: "doc.on.doc").font(.system(size: 12, design: .monospaced))
+                            }
+                            .buttonStyle(ShelfPill(kind: .soft))
+                            .help("Copy this Mac's tailnet address")
+                        }
+                        let online = state.peers.filter(\.online)
+                        ShelfNote(text: online.isEmpty ? "No other devices online." : "Online: " + online.prefix(4).map(\.name).joined(separator: ", "), size: 12)
+                        if let exit = state.exitNode { ShelfNote(text: "Exit node: \(exit.name)", size: 12) }
+                    } else if tailscale, vpn.tailscale?.needsLogin == true {
+                        ShelfNote(text: "Tailscale needs you to log in.", size: 12)
+                    } else {
+                        ShelfNote(text: tunnel.app == .wireguard ? "A WireGuard tunnel. Edit it in the WireGuard app." : "A VPN from System Settings.", size: 12)
+                    }
+                    Spacer(minLength: 0)
+                    ShelfSettingRow(title: on ? "Connected" : "Off", divider: false, height: 32) {
+                        if tailscale ? vpn.tailscaleBusy : tunnel.busy {
+                            ShelfSpinner(tint: ShelfMetrics.deep(Palette.ocean), size: 14, line: 2)
+                        } else {
+                            ToggleSwitch(isOn: on, tint: Palette.ocean, small: true, label: tunnel.name) { vpn.toggle(tunnel) }
+                        }
+                    }
+                }
+                .padding(13)
+            }
+        }
+        ShelfGhostCard(title: "Hide their icons", detail: "Tailscale and WireGuard keep running with their menu bar icons off.",
+                       symbol: "menubar.rectangle", index: vpn.tunnels.count) {
+            s.close()
+            NSWorkspace.shared.open(VPN.menuBarSettings)
+        }
     }
 }
 

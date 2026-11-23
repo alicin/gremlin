@@ -145,6 +145,8 @@ struct WindowRoot: View {
         .environmentObject(model.links)
         .environmentObject(model.drives)
         .environmentObject(model.displays)
+        .environmentObject(model.scrolling)
+        .environmentObject(model.vpn)
     }
 }
 
@@ -197,8 +199,10 @@ private struct ScreenHost: View {
         case .fixes: FixesScreen()
         case .ipad: IPadScreen()
         case .universalControl: UniversalControlScreen()
+        case .scrolling: ScrollingScreen()
         case .links: LinksScreen()
         case .drives: DrivesScreen()
+        case .vpn: VPNScreen()
         case .settings: SettingsScreen()
         }
     }
@@ -315,9 +319,9 @@ private struct Sidebar: View {
                     Text("Unsticks your Mac").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
-            .padding(.top, 48)
+            .padding(.top, 42)
             .padding(.horizontal, 4)
-            .padding(.bottom, 12)
+            .padding(.bottom, 10)
             SearchField(text: $navigator.query, focused: $searchFocused)
                 .padding(.bottom, 8)
             ScrollView {
@@ -458,7 +462,7 @@ private struct GroupHeader: View {
                     .opacity(hovering.value || collapsed ? 1 : 0)
             }
             .padding(.horizontal, 8)
-            .padding(.top, 10)
+            .padding(.top, 6)
             .padding(.bottom, 3)
             .contentShape(Rectangle())
         }
@@ -489,7 +493,7 @@ private struct SideRow<Icon: View, Trailing: View>: View {
             }
             .padding(.leading, 4)
             .padding(.trailing, 8)
-            .frame(height: 30)
+            .frame(height: 29)
             .background {
                 if selected {
                     shape.fill(tint.opacity(0.2))
@@ -514,6 +518,8 @@ private struct SideBadge: View {
     @EnvironmentObject private var model: MenuModel
     @EnvironmentObject private var links: Links
     @EnvironmentObject private var drives: Drives
+    @EnvironmentObject private var scrolling: ScrollDirection
+    @EnvironmentObject private var vpn: VPN
 
     var body: some View {
         switch module {
@@ -556,6 +562,16 @@ private struct SideBadge: View {
             if model.watcher.isOn { Circle().fill(model.watcher.tone.color).frame(width: 6, height: 6) }
         case .ipad:
             if model.ipad?.state == .connected { Circle().fill(Palette.busy).frame(width: 6, height: 6) }
+        case .scrolling:
+            if scrolling.needsAccess { Circle().fill(Palette.warn).frame(width: 6, height: 6) }
+        case .vpn:
+            let on = vpn.others.filter { $0.state == .on }.count + (vpn.tailscaleOn ? 1 : 0)
+            if on > 0 {
+                HStack(spacing: 4) {
+                    Circle().fill(Palette.good).frame(width: 6, height: 6)
+                    Text("\(on)").font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
         default:
             EmptyView()
         }

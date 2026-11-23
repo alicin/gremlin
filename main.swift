@@ -36,7 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let links = Links()
     private let drives = Drives()
     private let displays = Displays()
-    private lazy var model = MenuModel(links: links, drives: drives, displays: displays)
+    private let scrolling = ScrollDirection()
+    private let vpn = VPN()
+    private lazy var model = MenuModel(links: links, drives: drives, displays: displays, scrolling: scrolling, vpn: vpn)
     private let recordings = Recordings()
     private lazy var window = GremlinWindow(model: model, recordings: recordings)
     private lazy var shelf = Shelf(model: model, recordings: recordings)
@@ -95,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         link.start()
         drives.start()
         displays.start()
+        scrolling.start()
+        vpn.start()
         for item in switches where defaults.bool(forKey: item.key) {
             item.feature.start()
         }
@@ -105,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.links.refresh()
             self?.drives.refresh()
             self?.displays.refresh()
+            self?.scrolling.refresh()
+            self?.vpn.refresh()
             self?.recordings.refresh()
             self?.meetingSync.syncIfStale()
             self?.model.awakeOthers = KeepAwake.others()
@@ -178,6 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meetings.notes.stop()
         meetingSync.stop()
         keepAwake.stop()
+        scrolling.stop()
+        vpn.stop()
     }
 
     // While recording, a click on the record button stops it, and a right-click or Control-click opens the window.
