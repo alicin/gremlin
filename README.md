@@ -309,7 +309,9 @@ Switch Tailscale and your WireGuard tunnels on and off from Gremlin, so their ow
 - **WireGuard.** Every tunnel from the WireGuard app, with a switch and how long it has been connected. Gremlin starts and stops them as macOS VPN services, the same switch as System Settings › VPN. **Manage** opens the WireGuard app to add or edit tunnels.
 - **Other VPNs** set up in System Settings show up too, with the same switch.
 
-Home has a VPN widget and the shelf a VPN card, both with the switches. To lose the extra icons, hide Tailscale and WireGuard under **Menu Bar** in System Settings: they keep running with their icons off, and **Menu Bar Settings** on the VPN page takes you there.
+Home has a VPN widget and the shelf a VPN card, both with the switches.
+
+Neither app has to be running. Keep both installed, though: WireGuard's tunnels and Tailscale's system extension come with them. Quitting Tailscale's app turns Tailscale off, and nothing turns it back on at login without the app, so Gremlin remembers whether you last turned Tailscale on or off with its switch and puts it back that way when it starts. To keep the apps but lose their icons, hide them under **Menu Bar** in System Settings; **Menu Bar Settings** on the VPN page takes you there.
 
 ## Displays
 

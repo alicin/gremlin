@@ -167,6 +167,7 @@ final class VPN: ObservableObject {
     static let wireGuardApp = URL(fileURLWithPath: "/Applications/WireGuard.app")
     static let tailscaleApp = URL(fileURLWithPath: "/Applications/Tailscale.app")
     static let menuBarSettings = URL(string: "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension")!
+    nonisolated static let tailscaleWanted = "tailscaleWanted"
 
     private let readTailscale: () async -> TailscaleState?
     private var preferences: SCPreferences?
@@ -196,6 +197,7 @@ final class VPN: ObservableObject {
         }, &context)
         SCPreferencesScheduleWithRunLoop(preferences, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         reload()
+        restoreTailscale()
     }
 
     func stop() {
@@ -255,22 +257,50 @@ final class VPN: ObservableObject {
             return
         }
         tailscaleBusy = true
-        problem = nil
+        UserDefaults.standard.set(on, forKey: Self.tailscaleWanted)
         Log.write(on ? "Turning Tailscale on" : "Turning Tailscale off")
+        Task { await switchTailscale(on) }
+    }
+
+    @discardableResult
+    private func switchTailscale(_ on: Bool) async -> Bool {
+        tailscaleBusy = true
+        problem = nil
+        if on, let tunnel = tailscaleTunnel, tunnel.state != .on, let connection = connections[tunnel.id] {
+            SCNetworkConnectionStart(connection, nil, false)
+            for _ in 0..<30 where SCNetworkConnectionGetStatus(connection) != .connected {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        let result = await TailscaleCLI.run([on ? "up" : "down"])
+        if !result.ok {
+            problem = Self.tailscaleProblem(result.output, on: on)
+            Log.write("Tailscale \(on ? "up" : "down") failed: \(result.output)")
+        }
+        tailscale = await readTailscale()
+        tailscaleBusy = false
+        return result.ok
+    }
+
+    // Without its app, nothing turns Tailscale on at login, so Gremlin puts back the state last chosen with its switch.
+    // Tailscale can still be starting then, hence the retries.
+    private func restoreTailscale() {
+        guard tailscaleInstalled else { return }
         Task {
-            if on, let tunnel = tailscaleTunnel, tunnel.state != .on, let connection = connections[tunnel.id] {
-                SCNetworkConnectionStart(connection, nil, false)
-                for _ in 0..<30 where SCNetworkConnectionGetStatus(connection) != .connected {
-                    try? await Task.sleep(for: .milliseconds(500))
+            for delay in [0, 10, 30] {
+                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                let state = await readTailscale()
+                if let state { tailscale = state }
+                guard let wanted = UserDefaults.standard.object(forKey: Self.tailscaleWanted) as? Bool else {
+                    guard let state, state.running || state.backend == "Stopped" else { continue }
+                    UserDefaults.standard.set(state.running, forKey: Self.tailscaleWanted)
+                    return
                 }
+                guard state?.needsLogin != true, (state?.running == true) != wanted else { return }
+                guard !tailscaleBusy else { continue }
+                Log.write(wanted ? "Turning Tailscale back on, as it was left" : "Turning Tailscale off, as it was left")
+                if await switchTailscale(wanted) { return }
             }
-            let result = await TailscaleCLI.run([on ? "up" : "down"])
-            if !result.ok {
-                problem = Self.tailscaleProblem(result.output, on: on)
-                Log.write("Tailscale \(on ? "up" : "down") failed: \(result.output)")
-            }
-            tailscale = await readTailscale()
-            tailscaleBusy = false
         }
     }
 
