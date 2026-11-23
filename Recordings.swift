@@ -48,12 +48,18 @@ final class Recordings: ObservableObject {
     @Published private(set) var loaded = false
     private var notesCache: [URL: (date: Date, notes: Notes)] = [:]
     private var scanning = false
+    private let folder: URL
+
+    init(folder: URL = Meetings.folder) {
+        self.folder = folder
+    }
 
     func refresh() {
         guard !scanning else { return }
         scanning = true
+        let folder = folder
         Task.detached(priority: .utility) {
-            let items = Self.scan()
+            let items = Self.scan(folder)
             await MainActor.run {
                 self.scanning = false
                 if items != self.items { self.items = items }
@@ -80,9 +86,9 @@ final class Recordings: ObservableObject {
 
     // MARK: Reading folders
 
-    nonisolated private static func scan() -> [Item] {
+    nonisolated private static func scan(_ root: URL) -> [Item] {
         let fm = FileManager.default
-        guard let folders = try? fm.contentsOfDirectory(at: Meetings.folder, includingPropertiesForKeys: [.isDirectoryKey],
+        guard let folders = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey],
                                                         options: [.skipsHiddenFiles]) else { return [] }
         return folders.compactMap { folder -> Item? in
             guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return nil }

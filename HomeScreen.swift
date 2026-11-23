@@ -86,7 +86,7 @@ private struct HomeGreeting: View {
     @StateObject private var spun = Box(false)
 
     private static let name: String = {
-        let first = NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
+        let first = UserDefaults.standard.string(forKey: "greetingName") ?? NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
         return first.prefix(1).uppercased() + first.dropFirst()
     }()
 

@@ -5,10 +5,10 @@
 <h1 align="center">Gremlin</h1>
 
 <p align="center">
-  <b>A little Liquid Glass panel in the menu bar that fixes the everyday kinks of macOS.</b><br>
-  It records meetings with a transcript, grabs text and colors off the screen, sends every link<br>
-  to the right browser, mounts your servers in Finder, puts your displays back the way you had them,<br>
-  and unsticks the Dock, Finder, Notification Center and Universal Control.
+  <b>A little Mac app behind a paw in the menu bar that fixes the everyday kinks of macOS.</b><br>
+  It records meetings with a transcript, grabs text and colors off the screen, sends every link to the right browser,<br>
+  mounts your servers in Finder, puts your displays back, gives each mouse its own scroll direction,<br>
+  switches Tailscale and WireGuard, and unsticks the Dock, Finder, Notification Center and Universal Control.
 </p>
 
 <p align="center">
@@ -24,65 +24,60 @@
   <a href="#keep-awake">Keep Awake</a> ·
   <a href="#ipad-as-a-display">iPad</a> ·
   <a href="#universal-control">Universal Control</a> ·
+  <a href="#scrolling">Scrolling</a> ·
   <a href="#links">Links</a> ·
   <a href="#drives">Drives</a> ·
+  <a href="#vpn">VPN</a> ·
   <a href="#displays">Displays</a> ·
   <a href="#restart">Restart</a> ·
-  <a href="#make-the-glass-yours">Glass</a> ·
+  <a href="#the-shelf">Shelf</a> ·
   <a href="#install">Install</a>
 </p>
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.jpg"><img src="docs/hero-light.jpg" width="100%" alt="Three Gremlin panels: the main view, the main view while recording, and the Universal Control page"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.jpg"><img src="docs/hero-light.jpg" width="100%" alt="Gremlin's window: a sidebar of utilities next to Home, a board of live widgets for recording, Keep Awake, displays, drives, tools, the iPad, Universal Control, meetings, VPN and links"></picture>
 </p>
 
-Click the paw in the menu bar and a glass panel drops down with everything in one place. Each part below is a section of that panel. Pages like Restart, Universal Control and Settings slide in, and the glass stretches to fit them. Escape or a click anywhere else closes it.
+Click the paw in the menu bar and Gremlin's window opens on **Home**, a board with a live widget for each utility, and a sidebar with each one's own page. <kbd>⌘</kbd><kbd>K</kbd> searches the sidebar and <kbd>⌘</kbd><kbd>,</kbd> opens Settings. For a quick switch without the window, <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>G</kbd> raises [the shelf](#the-shelf) from the bottom of the screen. Gremlin stays out of the Dock; opening it from Finder or Spotlight shows the window too.
 
 It's a handful of Swift files built from the command line. It needs nothing else, except Homebrew's whisper.cpp and ffmpeg for meeting transcripts. It runs as you and never asks for an admin password.
 
 ## Meetings
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/recording-dark.jpg"><img src="docs/recording-light.jpg" alt="The panel while recording, with the timer, live sound bars and the stop button"></picture></td>
-<td>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/meetings-dark.jpg"><img src="docs/meetings-light.jpg" width="100%" alt="The Meetings page: recordings by day on the left, and the selected meeting's summary, decisions and action items on the right, with Show in Finder, transcript.md and Play"></picture>
+</p>
 
-**Record** sits at the top of the panel. **Screen** records the screen the pointer is on, with all sound and your mic. **Audio** records just the two sides of the call, with no video.
+**Screen** records the screen the pointer is on, with all sound and your mic. **Audio** records just the two sides of the call, with no video. Both are on Home's Record widget and at the top of the Meetings page.
 
-While it runs, the menu bar shows a red record button and how long it has been going. **Click it to stop**, or right-click it for the panel. The strip shows the time and bars that move while sound is coming in and lie flat through silence.
+While it runs, the paw turns into a red record button with how long it has been going. **Click it to stop**, or right-click it for the window. The Record widget shows the time and bars that move while sound is coming in and lie flat through silence.
 
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>R</kbd> records the screen and audio
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>A</kbd> records audio only
 
 Either one stops a recording that's running.
 
-</td>
-</tr>
-</table>
-
 ### It offers when a call starts
 
-When a browser or a meeting app (Zoom, Teams, Webex, Slack, FaceTime) has used the mic for 5 seconds, a panel under the menu bar asks whether to record the call. **Record** records the screen the call's window is on, **Audio Only** skips the video, and **Not now** leaves that call alone until the app lets go of the mic.
+When a browser or a meeting app (Zoom, Teams, Webex, Slack, FaceTime) has used the mic for 5 seconds, a prompt under the menu bar asks whether to record the call. **Record** records the screen the call's window is on, **Audio Only** skips the video, and **Not now** leaves that call alone until the app lets go of the mic.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/call-offer-dark.jpg"><img src="docs/call-offer-light.jpg" width="480" alt="A panel offering to record a Safari call, with Record, Audio Only and Not now"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/call-offer-dark.jpg"><img src="docs/call-offer-light.jpg" width="480" alt="A prompt offering to record a Safari call, with Record, Audio Only and Not now"></picture>
 </p>
 
-When a recorded call goes quiet, meaning its app has stopped using both the mic and the speakers for 8 seconds, the panel counts down 15 seconds before stopping.
+When a recorded call goes quiet, meaning its app has stopped using both the mic and the speakers for 8 seconds, the prompt counts down 15 seconds before stopping.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/call-ended-dark.jpg"><img src="docs/call-ended-light.jpg" width="480" alt="A panel counting down to stop the recording after the call ended"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/call-ended-dark.jpg"><img src="docs/call-ended-light.jpg" width="480" alt="A prompt counting down to stop the recording after the call ended"></picture>
 </p>
 
-These panels show over full-screen apps and appear even with notifications or a Focus turned off. Nothing is ever recorded without you asking, and **Offer to record calls** in Settings turns the offers off.
+These prompts show over full-screen apps and appear even with notifications or a Focus turned off. Nothing is ever recorded without you asking, and **Offer to record calls** in Settings turns the offers off.
 
 ### After the call
 
-<table>
-<tr>
-<td>
+The recording's folder opens in Finder as soon as you stop. Home then shows how the transcript is coming along, and **Transcript ready** when it's done, with the meeting's length and how many action items it found.
 
-The recording's folder opens in Finder as soon as you stop. The panel then shows how the transcript is coming along, and **Transcript ready** when it's done, with the meeting's length and how many action items it found. **Open** shows `transcript.md` in Finder.
+The **Meetings** page lists every recording by day. Pick one for its summary, decisions, action items with who owns each, and the transcript, with **Play**, **Show in Finder** and **transcript.md**. While a smaller copy is being made, it shows the percentage and the time left.
 
 ```
 ~/Movies/Meetings/2026-10-21 11.00 Weekly sync/
@@ -93,30 +88,34 @@ The recording's folder opens in Finder as soon as you stop. The panel then shows
 
 An audio-only recording ends up as `recording.m4a` instead.
 
-</td>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/transcript-dark.jpg"><img src="docs/transcript-light.jpg" alt="The panel showing Transcript ready, with Open"></picture></td>
-</tr>
-</table>
-
 - **Transcript.** Written on the Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`), labelled **Me** (your mic) and **Them** (the call). whisper detects the language, Turkish and English included, or you can pick one under **Transcript language** in Settings. Without headphones your mic also hears the call, and those duplicate lines are dropped. Without whisper, Gremlin falls back to Apple's speech recognition, which only knows a few languages.
 - **Summary.** If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items in English at the top, using your Claude login rather than an API key.
 - **Names.** With calendar access, a recording is named after the event it happened during, and the transcript and summary list who was invited.
-- **Smaller copy.** [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) compresses the video with x265 at CRF 26 and mixes the call and your mic into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call takes roughly 15 minutes on an M5, and the panel shows the percentage as it goes.
+- **Smaller copy.** [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) compresses the video with x265 at CRF 26 and mixes the call and your mic into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call takes roughly 15 minutes on an M5.
 
 <details>
 <summary><b>Recording details</b></summary>
 
 While recording, and until the compressed copy is done, the folder holds `recording.mov`: 15 fps, one pixel per point of the screen and at most 2560 px, with all other sound and your mic on separate tracks. Recording at Retina resolution and 30 fps made calls drop frames. It's written in 10-second fragments, so a crash or a power cut loses at most the last few seconds. Gremlin moves it to the Trash once the compressed copy is the same length. Without ffmpeg, it is kept.
 
-The panel warns you, and a panel pops up, if the mic sends nothing, or only silence for the first 90 seconds, or if the file stops growing. If recording can't start, Gremlin says so in a dialog and in the panel, with a **Fix** button when it's a missing permission.
+Gremlin warns you on Home, and a prompt pops up, if the mic sends nothing, or only silence for the first 90 seconds, or if the file stops growing. If recording can't start, Gremlin says so in a dialog and on Home, with a **Fix** button when it's a missing permission.
 
 The first transcript downloads whisper's model (large-v3-turbo, about 875 MB) and a voice detection model to `~/Library/Application Support/Gremlin/Models`. After that, a call is transcribed in a fraction of its length: 3 minutes of Turkish took 24 seconds on an M5. If Gremlin quits before a meeting is transcribed or compressed, it finishes the job the next time it starts.
 
 </details>
 
+### Sync between Macs
+
+**Sync meetings** in Settings copies every meeting to a **Gremlin Meetings** folder in your Google Drive, and every Mac running Gremlin with the same Google account gets the ones it's missing. Sign in with **Use Clipboard's Google App** when Clipboard already syncs through Google Drive, or with the client ID and secret of your own Google Cloud client, the same one on every Mac. A Web application client needs `http://127.0.0.1:53847` as a redirect URI, like Clipboard's. The Meetings page shows how sync is doing, with a button to sync now.
+
+- **Only adds and updates.** A meeting removed on one Mac, or in Drive, stays everywhere else and isn't copied back. When a newer transcript arrives, say with a summary another Mac added, the copy it replaces goes to the Trash.
+- **What syncs.** `transcript.md`, `event.json` and the compressed `recording.mp4` or `recording.m4a`, once a meeting is transcribed. The original `recording.mov` never leaves the Mac.
+- **When.** At launch, every 15 minutes, after each transcript or smaller copy is done, and with **Sync Now**. It pauses while recording so uploads don't compete with the call.
+- **What Gremlin can reach.** Only files it made, through Google's `drive.file` scope. You can move the Gremlin Meetings folder anywhere in your Drive.
+
 ## Tools
 
-The row of round buttons under Record. Each one also has a shortcut that works anywhere.
+On Home's Tools widget and the Tools page. Each one also has a shortcut that works anywhere.
 
 | Tool | What it does |
 | --- | --- |
@@ -125,24 +124,23 @@ The row of round buttons under Record. Each one also has a shortcut that works a
 | **Plain Paste**<br><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd> | Strips the formatting from the clipboard and pastes. |
 | **Fix Focus**<br><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>F</kbd> | Fixes the menu bar showing one app while your typing goes nowhere, or to a window behind it. That happens most after switching Spaces or using Universal Control. Gremlin takes focus for a moment, hands it back to the app whose window is on top, and raises that window. |
 
-**Auto-Fix Lost Focus** in Settings does that last one for you. It steps in when the frontmost app has windows on screen but none of them has focus, or another app's window sits on top of them, for 3 seconds. Apps that never report focus properly are left alone after one try. It's off by default because it needs Accessibility permission.
+**Auto-Fix Lost Focus** on the Fixes page does that last one for you. It steps in when the frontmost app has windows on screen but none of them has focus, or another app's window sits on top of them, for 3 seconds. Apps that never report focus properly are left alone after one try. It's off by default because it needs Accessibility permission.
 
 ## Keep Awake
 
-Keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off (∞). Drag the knob or click a stop. The panel shows when it ends and lists any other app that is keeping the Mac awake, and the knob slides down as time runs out. It survives a Gremlin restart until its time is up.
+Keeps the display and the Mac awake for 30 minutes to 4 hours, or until you turn it off (∞). Drag the dial on Home or click a stop. It shows when it ends and lists any other app that is keeping the Mac awake, and the dial winds down as time runs out. The chip at the bottom of the sidebar turns it on for an hour or off in one click. It survives a Gremlin restart until its time is up.
 
 ## iPad as a display
 
-The iPad card shows your iPad's name and whether it's nearby, connected as a display, or away and when it was last seen. **Connect** (<kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>S</kbd>) makes it a Sidecar display, and **Disconnect** gives it back. It always takes the iPad: an iPad that is a display for another Mac switches over, and a session this Mac is still holding is dropped and started fresh. With several iPads nearby, it picks the first one.
+The iPad widget shows your iPad's name and whether it's nearby, connected as a display, or away and when it was last seen. **Connect** (<kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>S</kbd>) makes it a Sidecar display, and **Disconnect** gives it back. It always takes the iPad: an iPad that is a display for another Mac switches over, and a session this Mac is still holding is dropped and started fresh. With several iPads nearby, it picks the first one.
 
-It uses the same private SidecarCore calls as the Displays menu in Control Center. If a macOS update changes them, the card disappears instead of misbehaving.
+It uses the same private SidecarCore calls as the Displays menu in Control Center. If a macOS update changes them, the iPad page disappears instead of misbehaving.
 
 ## Universal Control
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/universal-control-dark.jpg"><img src="docs/universal-control-light.jpg" alt="The Universal Control page with its status, devices, reset buttons and pairing"></picture></td>
-<td>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/universal-control-dark.jpg"><img src="docs/universal-control-light.jpg" width="100%" alt="The Universal Control page: the iPad, this Mac and a paired Mac mini all connected, with reset buttons, pairing and how the fix works"></picture>
+</p>
 
 **What it is.** Universal Control lets one keyboard and mouse work across Macs and iPads sitting next to each other. You move the pointer past the edge of one screen and keep going on the next device.
 
@@ -150,17 +148,25 @@ It uses the same private SidecarCore calls as the Displays menu in Control Cente
 
 **The fix.** Gremlin reads Universal Control's logs to spot the moment it gives up, and toggles it for you, retrying with increasing delays. Paired Gremlins talk over the local network, so whichever Mac notices the problem can get the *other* Mac to toggle.
 
-The card in the panel shows what the watcher sees and when it last reset, with **Reset now** (**Reset here** once you've paired another Mac). The **›** button opens this page: the devices, a reset on this Mac, the other one or both, and pairing.
+Home's widget shows what the watcher sees and when it last reset, with **Reset here**. The Universal Control page shows the devices, resets this Mac, the other one or both, and pairs Macs. To pair, install Gremlin on both Macs, choose **Pair another Mac…** on each, and click Pair on both if the 6-digit codes match. The details are [further down](#how-the-universal-control-fix-works).
 
-</td>
-</tr>
-</table>
+## Scrolling
 
-To pair, install Gremlin on both Macs, choose **Pair Another Mac…** on each, and click Pair on both if the 6-digit codes match. The details are [further down](#how-the-universal-control-fix-works).
+macOS has one Natural scrolling setting for every mouse and trackpad. Gremlin gives each device its own, so the trackpad can scroll naturally while the mouse scrolls the standard way, like [Scroll Reverser](https://pilotmoon.com/scrollreverser/).
+
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/scrolling-dark.jpg"><img src="docs/scrolling-light.jpg" width="100%" alt="The Scrolling page: the built-in trackpad with natural scrolling, same as macOS, and a Razer mouse set to standard scrolling, which Gremlin flips"></picture>
+</p>
+
+The Scrolling page has a card for each mouse and trackpad with a **Natural scrolling** switch. A device you haven't set follows macOS. A card lights up while its device scrolls, which tells apart two mice behind receivers with the same name. A device keeps its setting while it's unplugged, and **Forget** drops it.
+
+- **What it flips.** Both directions of every scroll from a device set the other way from macOS, and apps are told the direction changed, as if macOS had done it. Scrolls from other devices, and from software, pass through untouched.
+- **What it costs.** Gremlin only taps scroll events while a device is set the other way, on a thread of its own so a busy Gremlin can't make scrolling lag. Flipping needs Accessibility permission.
+- **How it tells devices apart.** Each scroll event names the HID service that sent it, through a private CoreGraphics call (`CGEventCopyIOHIDEvent`). Gremlin looks that service up in IOKit and knows the device by its maker, model and name. If macOS ever drops the call, nothing gets flipped.
 
 ## Links
 
-Make Gremlin your default browser and every link you click goes through it first, then on to the right browser, profile or app. It removes the tracking on the way. It's off until you press **Make Default** on the Links page, and macOS asks you to confirm.
+Make Gremlin your default browser and every link you click goes through it first, then on to the right browser, profile or app. It removes the tracking on the way. It's off until you press **Make default** on the Links page, and macOS asks you to confirm.
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-picker-dark.jpg"><img src="docs/links-picker-light.jpg" width="560" alt="The picker: a link's address above a row of browsers and profiles, each with a key to press"></picture>
@@ -168,7 +174,7 @@ Make Gremlin your default browser and every link you click goes through it first
 
 ### The picker
 
-When a link is set to **Ask Every Time**, a panel opens by the pointer. The app you clicked in stays in front until you choose.
+When a link is set to **Ask Every Time**, a picker opens by the pointer. The app you clicked in stays in front until you choose.
 
 | To | Do this |
 | --- | --- |
@@ -183,10 +189,9 @@ Links that arrive while it's open join the waiting one, and your choice covers t
 
 ### Where links go
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-dark.jpg"><img src="docs/links-light.jpg" alt="The Links page with the default browser, rules, cleanup switches and a box for testing a link"></picture></td>
-<td>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-dark.jpg"><img src="docs/links-light.jpg" width="100%" alt="The Links page overview: today's links, the cleanup switches, where links open, and a box for testing a link"></picture>
+</p>
 
 Each link takes the first of these that fits:
 
@@ -195,20 +200,9 @@ Each link takes the first of these that fits:
 3. **Apps**: links for Zoom, Microsoft Teams, Figma, Linear, Notion, Spotify and Discord open in their apps, and Google Meet opens in Chrome, when installed. Each has a switch.
 4. **The default**: a browser, a profile, or the picker.
 
-**Where would this link go?** runs a pasted link through all of it and shows the result, without opening anything. The main panel's Links card switches the default in one click, and **History** shows where recent links went and why.
-
-</td>
-</tr>
-</table>
+**Where would this link go?** runs a pasted link through all of it and shows the result, without opening anything. Home's Links widget switches the default in one click, and **History** shows where recent links went and why.
 
 ### Rules
-
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-rules-dark.jpg"><img src="docs/links-rules-light.jpg" alt="The Rules page listing four rules, with a script box for every link"></picture></td>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-rule-dark.jpg"><img src="docs/links-rule-light.jpg" alt="Editing a rule: name, destination, link conditions, source apps and a script"></picture></td>
-</tr>
-</table>
 
 A rule opens matching links in a browser, a profile, a private window, the picker or any other app. It can match on:
 
@@ -235,20 +229,11 @@ Every link goes through these in order, and each has a switch:
 
 ### Browsers and profiles
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/links-browsers-dark.jpg"><img src="docs/links-browsers-light.jpg" alt="The Browsers page, with a switch, an order and a key for each browser and profile"></picture></td>
-<td>
+Gremlin finds every browser on the Mac. On the **Browsers** tab, choose which ones the picker shows, their order, and the key for each.
 
-Gremlin finds every browser on the Mac. Choose which ones the picker shows, their order, and the key for each.
-
-**Find Profiles** reads the profiles of Chrome, Edge, Brave, Vivaldi and Firefox, and macOS may ask first. Gremlin only looks when you press it. Each profile can then be shown in the picker or used in a rule.
+**Find profiles** reads the profiles of Chrome, Edge, Brave, Vivaldi and Firefox, and macOS may ask first. Gremlin only looks when you press it. Each profile can then be shown in the picker or used in a rule.
 
 Private windows work in Chrome, Edge, Brave, Vivaldi, Opera, Firefox, Zen and LibreWolf.
-
-</td>
-</tr>
-</table>
 
 ### From anywhere else
 
@@ -279,14 +264,9 @@ Only `http` and `https` links are accepted this way, because any page can open a
 
 Mount a folder on any server you can `ssh` into, and it shows up in Finder like a disk. Gremlin connects the way `ssh` does in Terminal, with your `~/.ssh/config`, keys, agent and ProxyJump, so a host that works there works here. There's nothing to install on either end: no macFUSE, no kernel extension, and the server only needs SFTP, which comes with OpenSSH.
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/drives-dark.jpg"><img src="docs/drives-light.jpg" alt="The Drives page with a mounted drive, two drives to mount, a host from the SSH config, and where drives are mounted"></picture></td>
-<td>
-
 Add a drive with **+** on the Drives page, or one of the hosts Gremlin found in your SSH config. It needs a name, the host, and a folder, which is your home folder if you leave it empty.
 
-**Mount** opens it in Finder. It lives in `~/Drives/<name>`, so Terminal and every app can use it like any folder. The Drives card on the main panel mounts, opens and ejects drives in one click.
+**Mount** opens it in Finder. It lives in `~/Drives/<name>`, so Terminal and every app can use it like any folder. Home's Drives widget mounts, opens and ejects drives in one click.
 
 - **Mount when Gremlin starts** brings it back after login, and again once the network returns.
 - **Read only** refuses every change from this Mac, for looking around a server safely.
@@ -294,22 +274,9 @@ Add a drive with **+** on the Drives page, or one of the hosts Gremlin found in 
 - When the server wants a password or passphrase, or ssh meets a host it hasn't seen, Gremlin asks in a dialog. It can keep the password in your Keychain.
 - Quitting Gremlin ejects every drive first. Ejecting from Finder works too.
 
-</td>
-</tr>
-</table>
-
 ### Mac files stay on the Mac
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/drives-edit-dark.jpg"><img src="docs/drives-edit-light.jpg" alt="Editing a drive: name, host with a menu of SSH config hosts, folder, and the Mount when Gremlin starts and Read only switches"></picture></td>
-<td>
-
 On a server like this, macOS keeps Finder tags, download info and other extended attributes in a `._` file next to each file, and Finder leaves a `.DS_Store` in every folder you open. With **Keep Mac files here** on, Gremlin keeps them in `~/Library/Application Support/Gremlin/Drives` instead. The server stays clean and this Mac still sees them. `._` files already on the server are hidden.
-
-</td>
-</tr>
-</table>
 
 ### How it works
 
@@ -330,41 +297,41 @@ Each drive runs `ssh -s <host> sftp` and speaks SFTP over it. Gremlin hands thos
 - **Symlinks** to absolute paths outside the drive's folder point into this Mac, so they look broken. Ones that stay inside the folder work.
 - **Spotlight** doesn't index it.
 
+## VPN
+
+Switch Tailscale and your WireGuard tunnels on and off from Gremlin, so their own menu bar icons can go.
+
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/vpn-dark.jpg"><img src="docs/vpn-light.jpg" width="100%" alt="The VPN page: Tailscale connected with this Mac's address, the exit node and the tailnet's devices, and two WireGuard tunnels, one connected"></picture>
+</p>
+
+- **Tailscale.** A switch that does what Tailscale's own does (`tailscale up` and `down`), this Mac's tailnet address to copy, the exit node when your tailnet offers one, and every device with whether it's online. Click a device to copy its address, or right-click for its name. It uses the CLI that comes with the Tailscale app, and **Open Tailscale** is there for logging in or switching accounts.
+- **WireGuard.** Every tunnel from the WireGuard app, with a switch and how long it has been connected. Gremlin starts and stops them as macOS VPN services, the same switch as System Settings › VPN. **Manage** opens the WireGuard app to add or edit tunnels.
+- **Other VPNs** set up in System Settings show up too, with the same switch.
+
+Home has a VPN widget and the shelf a VPN card, both with the switches. To lose the extra icons, hide Tailscale and WireGuard under **Menu Bar** in System Settings: they keep running with their icons off, and **Menu Bar Settings** on the VPN page takes you there.
+
 ## Displays
 
 Save how your displays are arranged and put it back in one click: where each one sits, which has the menu bar, its resolution and refresh rate, its rotation, and which ones mirror which. Gremlin knows a display by its name, not by the port or hub it's plugged into, so a layout still fits after a USB-C hub brings the displays up in a different order.
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/displays-dark.jpg"><img src="docs/displays-light.jpg" alt="The Displays page: a to-scale drawing of the built-in display and two LG monitors, one of them portrait, above three saved layouts"></picture></td>
-<td>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/displays-dark.jpg"><img src="docs/displays-light.jpg" width="100%" alt="The Displays page: a to-scale drawing of the built-in display and two LG monitors, one of them portrait, next to a saved layout"></picture>
+</p>
 
-**+** on the Displays page saves the arrangement you have now as a layout. The drawing at the top shows the displays as they sit, to scale, with the menu bar on the main one.
+**Save current layout** saves the arrangement you have now. The drawing shows the displays as they sit, to scale, with the menu bar on the main one.
 
-**Apply** puts a layout back. The Displays card on the main panel applies one in a click, and says when your displays are arranged as one you saved.
+**Apply** puts a layout back. Home's Displays widget says when your displays are arranged as one you saved, and the shelf applies one in a click.
 
 - **Apply when these displays connect** puts a layout back by itself whenever exactly its displays are connected, and after sleep if they've moved. The first layout saved for a set of displays does this, and one layout per set can.
 - Arranging displays by hand in System Settings isn't undone. Gremlin only steps in when displays come or go.
 - A layout with a display that isn't connected applies to the ones that are.
 
-</td>
-</tr>
-</table>
-
 ### Telling displays apart
-
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/displays-edit-dark.jpg"><img src="docs/displays-edit-light.jpg" alt="Editing a layout: its name, the drawing, each display with its resolution and rotation, and the Apply when these displays connect switch"></picture></td>
-<td>
 
 macOS numbers displays that share a name, like "LG HDR 4K (1)" and "(2)", in the order they show up, so a hub can swap the numbers. Gremlin matches displays by name, and two with the same name by the serial number each one reports, so the monitor on its side stays the one that's rotated. macOS's number decides only when the serial numbers are missing or the same. The built-in display is always the built-in display.
 
-**Use Current Layout** saves the arrangement you have now into the layout, for after you've moved things around.
-
-</td>
-</tr>
-</table>
+**Use current layout** in a layout's editor saves the arrangement you have now into it, for after you've moved things around.
 
 ### How it works
 
@@ -380,20 +347,11 @@ A layout is applied by a short-lived copy of Gremlin. Once a process has rotated
 
 ## Restart
 
-<table>
-<tr>
-<td>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/restart-dark.jpg"><img src="docs/restart-light.jpg" width="100%" alt="The Restart page with a tile for each part of macOS"></picture>
+</p>
 
-When part of macOS hangs, restarting just that part usually fixes it, without logging out. The panel has Dock, Finder and Menu Bar one click away, and **More** opens all of them. A tile restarts its part straight away and says so. **Restart All** asks for a second click, since it also empties the clipboard.
-
-All of these run as you, and macOS starts them again right away.
-
-**Fix Stuck Notification Center** in Settings watches for a macOS 27 bug where a banner freezes halfway in and Notification Center spins at 100% CPU. If it stays above 90% for 30 seconds, Gremlin restarts it. It's on by default.
-
-</td>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/restart-dark.jpg"><img src="docs/restart-light.jpg" alt="The Restart page with a tile for each part of macOS"></picture></td>
-</tr>
-</table>
+When part of macOS hangs, restarting just that part usually fixes it, without logging out. The Restart page has a tile for each part. A tile restarts its part straight away and says so. **Restart all** asks for a second click, since it also empties the clipboard. All of these run as you, and macOS starts them again right away.
 
 | Tile | Restarts | Try it when |
 | --- | --- | --- |
@@ -407,49 +365,68 @@ All of these run as you, and macOS starts them again right away.
 | Universal Clipboard | `useractivityd`, then `pboard` | Copying on one device no longer pastes on another |
 | iCloud Drive | `bird` | iCloud Drive stops syncing |
 
+### Fixes
+
+The Fixes page has the watchers that fix macOS bugs as they happen, each with a switch and what it does:
+
+- **Auto-Fix Lost Focus**, from [Tools](#tools). Off by default.
+- **Fix Stuck Notification Center** watches for a macOS 27 bug where a banner freezes halfway in and Notification Center spins at 100% CPU. If it stays above 90% for 30 seconds, Gremlin restarts it. On by default.
+- **Universal Control Watcher**, from [Universal Control](#universal-control). On by default.
+
+## The shelf
+
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/shelf-dark.jpg"><img src="docs/shelf-light.jpg" width="100%" alt="The shelf: a glass strip of cards for Meetings, Tools, Keep Awake, Displays and Restart, with a search field and filters"></picture>
+</p>
+
+<kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>G</kbd> raises a glass strip from the bottom of the screen with a card for each utility, live like Home's widgets: record, keep awake, connect the iPad, mount a drive or flip a VPN without opening the window. Type to search, or pick a group.
+
+| Key | Does |
+| --- | --- |
+| <kbd>←</kbd> <kbd>→</kbd> | Move between cards |
+| <kbd>Return</kbd> | Open the card into that utility's own cards |
+| <kbd>Space</kbd> | Look closer at a card |
+| <kbd>⌘</kbd><kbd>1</kbd>–<kbd>9</kbd> | Jump to a card |
+| <kbd>Esc</kbd> | Go back, or close the shelf |
+
 ## Settings
 
-<table>
-<tr>
-<td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/settings-dark.jpg"><img src="docs/settings-light.jpg" alt="The Settings page"></picture></td>
-<td>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/settings-dark.jpg"><img src="docs/settings-light.jpg" width="100%" alt="The Settings page: everyday settings, meeting sync, background fixes and every shortcut"></picture>
+</p>
 
-**Settings ›** at the bottom of the panel turns features on and off, and Gremlin remembers them between launches.
+**Settings**, at the bottom of the sidebar, turns features on and off, and Gremlin remembers them between launches.
 
-- **Offer to record calls**: the call panel above.
+- **Start at login**: on after installing.
+- **Offer to record calls**: the call prompt above.
 - **Transcript language**: Automatic, or a language for whisper to assume.
-- **Auto-Fix Lost Focus**, **Fix Stuck Notification Center**, **Universal Control Watcher**: the background fixes.
-- **Start at Login**: on after installing.
+- **Sync meetings**: [Google Drive sync](#sync-between-macs).
+- **Background fixes**: the [Fixes](#fixes) switches.
+- **Shortcuts**: every shortcut in one place.
 
 Everything Gremlin does is logged to `~/Library/Logs/Gremlin.log`.
 
-</td>
-</tr>
-</table>
-
 ## Make the glass yours
 
-Every surface, from the panel and its cards and buttons to the record strip and the call panels, takes its look from one place: `GlassLook` in [`Glass.swift`](Glass.swift). It follows the system's Light or Dark Mode. Light looks like a regular macOS menu, and Dark is very dark, so either reads well over any window. Both are Liquid Glass over a blur, and each knob can be changed without rebuilding:
+The floating surfaces, the link picker and the call and warning prompts, take their look from one place: `GlassLook` in [`Glass.swift`](Glass.swift). It follows the system's Light or Dark Mode. Light looks like a regular macOS menu, and Dark is very dark, so either reads well over any window. Both are Liquid Glass over a blur, and each knob can be changed without rebuilding:
 
 ```sh
 defaults write com.bunniesinc.gremlin glass.dark.tint -float 0.7
 defaults write com.bunniesinc.gremlin glass.material clear
 ```
 
-`glass.<knob>` changes both modes, and `glass.light.<knob>` or `glass.dark.<knob>` changes just one. The next panel that opens uses it, and `defaults delete com.bunniesinc.gremlin glass.dark.tint` goes back to the default.
+`glass.<knob>` changes both modes, and `glass.light.<knob>` or `glass.dark.<knob>` changes just one. The next surface that opens uses it, and `defaults delete com.bunniesinc.gremlin glass.dark.tint` goes back to the default.
 
 | Knob | Light | Dark | What it changes |
 | --- | --- | --- | --- |
 | `material` | `frosted` | `frosted` | `frosted` is Liquid Glass over a blur that reads well anywhere; `regular` is Liquid Glass alone; `clear` is see-through and only readable over plain backgrounds |
 | `tint` | `0.5` | `0.5` | How strongly the tint color covers the blur |
 | `tintColor` | `#FFFFFF` | `#0C0A14` | The tint color |
-| `radius` | `30` | `30` | The panel's corner radius |
-| `rim` | `0.1` | `0.14` | How strong the panel's edge is |
+| `rim` | `0.1` | `0.14` | How strong the edge is |
 | `textShadow` | `0` | `0` | A shadow behind text, for see-through glass |
 | `subtext` | `0.55` | `0.6` | How strong secondary text is |
 | `card` | `0.04` | `0.06` | How filled the cards are |
 | `control` | `0.07` | `0.1` | How filled buttons, pills and tiles are |
-| `strip` | `0.05` | `0.4` | How dark the record strip is |
 
 ## Install
 
@@ -478,11 +455,11 @@ macOS asks for each permission the first time a feature needs it:
 | --- | --- |
 | Screen Recording | Grab Text, recording meetings (audio-only ones too, since the call's sound comes through screen capture) |
 | Microphone | Recording your side of a meeting |
-| Accessibility | Auto-Fix Lost Focus, and the paste step of Plain Paste (without it, the clipboard is still made plain and you press <kbd>⌘</kbd><kbd>V</kbd>) |
+| Accessibility | Auto-Fix Lost Focus, flipping a device's scrolling, and the paste step of Plain Paste (without it, the clipboard is still made plain and you press <kbd>⌘</kbd><kbd>V</kbd>) |
 | Local Network | Pairing with another Mac, and drives on servers in your local network |
 | Notifications | Universal Control reset results, finished transcripts |
 | Calendars | Naming meeting recordings after the event |
-| App data | Reading browser profiles, only when you press **Find Profiles** |
+| App data | Reading browser profiles, only when you press **Find profiles** |
 
 The shortcuts use Carbon hotkeys, so they need no permission.
 
@@ -520,7 +497,7 @@ Flipping it on this Mac does not always help. When the other Mac is the one refu
 
 ### Two Macs: pairing and coordination
 
-Install Gremlin on both Macs and choose **Pair Another Mac…** on each within 2 minutes. Both show a 6-digit code. Click Pair on both if the codes match. The first time, macOS asks to allow Gremlin to find devices on the local network.
+Install Gremlin on both Macs and choose **Pair another Mac…** on each within 2 minutes. Both show a 6-digit code. Click Pair on both if the codes match. The first time, macOS asks to allow Gremlin to find devices on the local network.
 
 Once paired, the Macs talk over the local network (Bonjour, `_gremlin._tcp`, TCP port 47101), not over the AWDL link Universal Control uses. When Bonjour can't see the other Mac, Gremlin tries the addresses it last reported, which includes its Tailscale address. Only three messages exist: `status`, `reset` (flip Universal Control on the receiving Mac) and `stuck` (tell the other Mac what this one sees). Each is signed with a key agreed during pairing (Curve25519, HMAC-SHA256), with a timestamp and nonce so it can't be replayed. The key is kept in the login keychain.
 
@@ -528,7 +505,7 @@ Only one of the two Macs runs the resets, so they don't toggle each other at the
 
 The Universal Control page does the same by hand: on this Mac, on the other one, or on both.
 
-Resets and their results go to the panel, to a notification, and to `~/Library/Logs/Gremlin.log`.
+Resets and their results go to Home, to a notification, and to `~/Library/Logs/Gremlin.log`.
 
 Don't reset Universal Control any other way. `killall UniversalControl` is ignored, `launchctl kickstart -k gui/$UID/com.apple.ensemble` is refused by SIP, and `kill -9` gets it relaunched but left the other Mac holding a dead session until Universal Control was toggled on that Mac.
 
@@ -544,6 +521,7 @@ rm -rf ~/Library/Application\ Support/Gremlin
 defaults delete com.bunniesinc.gremlin
 security delete-generic-password -s com.bunniesinc.gremlin.peer ~/Library/Keychains/login.keychain-db
 security delete-generic-password -s "Gremlin Drives" ~/Library/Keychains/login.keychain-db  # once for each saved drive password
+security delete-generic-password -s com.bunniesinc.gremlin.google ~/Library/Keychains/login.keychain-db  # three times, for meeting sync
 security delete-identity -c "Gremlin Code Signing" ~/Library/Keychains/login.keychain-db
 ```
 
