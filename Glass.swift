@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-// Every Gremlin surface takes its look from here: the menu panel, its cards and buttons, the record strip, and the
-// call and warning panels. It follows the system's Light or Dark Mode, each with its own defaults. Each knob can also
-// be changed without rebuilding, and the next panel that opens uses it:
+// The floating surfaces take their look from here: the link picker and the call and warning prompts. It follows the
+// system's Light or Dark Mode, each with its own defaults. Each knob can also be changed without rebuilding, and the
+// next surface that opens uses it:
 //   defaults write com.bunniesinc.gremlin glass.dark.tint -float 0.6
 //   defaults write com.bunniesinc.gremlin glass.material clear
 //   defaults delete com.bunniesinc.gremlin glass.dark.tint
@@ -23,13 +23,11 @@ struct GlassLook: Sendable {
     // Laid over the blur. In Dark Mode it keeps the panel very dark even over bright windows.
     var tintColor: String
     var tint: Double
-    var radius = 30.0
     var rim: Double
     var textShadow: Double
     var subtext: Double
     var card: Double
     var control: Double
-    var strip: Double
 
     init(dark: Bool) {
         self.dark = dark
@@ -40,7 +38,6 @@ struct GlassLook: Sendable {
         subtext = dark ? 0.6 : 0.55
         card = dark ? 0.06 : 0.04
         control = dark ? 0.1 : 0.07
-        strip = dark ? 0.4 : 0.05
     }
 
     static func current(dark: Bool, _ defaults: UserDefaults = .standard) -> GlassLook {
@@ -52,8 +49,8 @@ struct GlassLook: Sendable {
         if let key = key("material"), let material = defaults.string(forKey: key).flatMap(Material.init) { look.material = material }
         if let key = key("tintColor"), let hex = defaults.string(forKey: key), Color(hex: hex) != nil { look.tintColor = hex }
         let knobs: [(String, WritableKeyPath<GlassLook, Double>)] = [
-            ("tint", \.tint), ("radius", \.radius), ("rim", \.rim), ("textShadow", \.textShadow),
-            ("subtext", \.subtext), ("card", \.card), ("control", \.control), ("strip", \.strip),
+            ("tint", \.tint), ("rim", \.rim), ("textShadow", \.textShadow),
+            ("subtext", \.subtext), ("card", \.card), ("control", \.control),
         ]
         for (name, path) in knobs {
             if let key = key(name) { look[keyPath: path] = defaults.double(forKey: key) }
@@ -109,7 +106,6 @@ enum Surface {
     case panel
     case card
     case control
-    case strip
     case warning
     case danger
     case primary
@@ -160,7 +156,7 @@ private struct SurfaceStyle: ViewModifier {
     private var corner: CGFloat? {
         if let radius { return radius }
         switch kind {
-        case .panel: return look.radius
+        case .panel: return 24
         case .card, .warning: return 18
         default: return nil
         }
@@ -179,9 +175,6 @@ private struct SurfaceStyle: ViewModifier {
             content.background(look.fill(look.card), in: shape)
         case .control:
             content.background(look.fill(look.control), in: shape)
-        case .strip:
-            content.background(.black.opacity(look.strip), in: shape)
-                .shadow(color: .black.opacity(look.dark ? 0.3 : 0.06), radius: 10, y: 6)
         case .warning:
             content.background(Tone.warning.color.opacity(look.dark ? 0.22 : 0.16), in: shape)
         case .danger:

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// The Links screen in Gremlin's window: everything the panel's Links pages do, as tabs inside one page.
+// The Links screen in Gremlin's window, as tabs inside one page.
 
 struct LinksScreen: View {
     @EnvironmentObject private var links: Links

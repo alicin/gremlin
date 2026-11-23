@@ -354,7 +354,6 @@ final class Displays: ObservableObject {
     @Published private(set) var live: [LiveDisplay] = []
     @Published private(set) var applying: UUID?
     @Published private(set) var notes: [UUID: String] = [:]
-    @Published var editing: UUID?
 
     private let folder: URL
     private var connected: [String]?

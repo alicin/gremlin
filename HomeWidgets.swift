@@ -1249,7 +1249,7 @@ struct HomeLinksWidget: View {
         }
     }
 
-    /// The default target in one click, like the panel's Links card.
+    /// The default target in one click.
     private var switcher: some View {
         let targets = links.shownTargets.filter { links.icon(of: $0) != nil }.prefix(4)
         return HStack(spacing: 3) {

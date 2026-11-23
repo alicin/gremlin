@@ -729,9 +729,54 @@ private struct MeetingSettings: View {
                 }
                 Spacer(minLength: 0)
             }
+            MeetingSyncRow()
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.page))
+    }
+}
+
+private struct MeetingSyncRow: View {
+    @EnvironmentObject private var model: MenuModel
+    @EnvironmentObject private var navigator: Navigator
+
+    var body: some View {
+        let sync = model.sync
+        HStack(spacing: 10) {
+            IconTile(symbol: "arrow.triangle.2.circlepath", tint: sync.connected ? Palette.sky : Palette.slate, size: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Google Drive").font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text(sync.connected && sync.problem != nil && !sync.syncing ? "Couldn't sync" : sync.summary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(sync.problem != nil && !sync.syncing ? AnyShapeStyle(Ink.coral) : AnyShapeStyle(.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .help(sync.problem ?? sync.summary)
+            Spacer(minLength: 6)
+            if sync.syncing {
+                DevicesParts.Spinner(tint: Palette.sky, size: 14)
+            } else if sync.connected {
+                Button { model.perform(.syncMeetings) } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .bold)).foregroundStyle(Ink.sky)
+                        .frame(width: 22, height: 22).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Sync now")
+            } else {
+                Button { navigator.go(.settings) } label: {
+                    HStack(spacing: 3) {
+                        Text("Set up")
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                    }
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(Ink.sky)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Sync meetings with Google Drive")
+            }
+        }
     }
 }
 

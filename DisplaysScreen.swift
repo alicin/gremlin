@@ -2,8 +2,7 @@ import AppKit
 import SwiftUI
 
 // Displays in the window: the live arrangement drawn to scale, the saved layouts beside it, and an editor that
-// takes the layouts' place. The editor keeps its own selection rather than `Displays.editing`, which the menu bar
-// panel's layout page uses.
+// takes the layouts' place.
 
 struct DisplaysScreen: View {
     @EnvironmentObject private var displays: Displays

@@ -148,7 +148,7 @@ private struct HomeGreeting: View {
     }
 }
 
-/// A problem or a finished job from the menu bar panel's banners.
+/// A problem or a finished job.
 private struct HomeBanner: View {
     let banner: MenuModel.Banner
     let perform: (MenuModel.Action) -> Void

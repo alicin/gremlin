@@ -90,7 +90,6 @@ final class Links: NSObject, ObservableObject {
     @Published var profilesDenied: Set<String> = []
     @Published var editing: UUID?
     @Published var testText = ""
-    @Published var testResult: String?
 
     var onChange: (() -> Void)?
 
@@ -335,18 +334,6 @@ final class Links: NSObject, ObservableObject {
         return LinkDecision(url: link, target: primary, why: "Default")
     }
 
-    func test(_ text: String) {
-        guard let url = LinkCleaner.httpURL(text) else {
-            testResult = text.isEmpty ? nil : "That isn't a web link"
-            return
-        }
-        testResult = "Checking…"
-        Task {
-            let decision = await decide(url, source: nil, modifiers: [])
-            testResult = "\(title(of: decision.target)) · \(decision.why)\n\(decision.url.absoluteString)"
-        }
-    }
-
     // MARK: Opening
 
     func open(_ url: URL, in target: LinkTarget, background: Bool = false, newWindow: Bool = false) {
@@ -453,11 +440,6 @@ final class Links: NSObject, ObservableObject {
         } else {
             config.shown.append(target)
         }
-    }
-
-    func moveUp<Item>(_ item: Item, in list: WritableKeyPath<LinkConfig, [Item]>) where Item: Equatable {
-        guard let index = config[keyPath: list].firstIndex(of: item), index > 0 else { return }
-        config[keyPath: list].swapAt(index, index - 1)
     }
 
     func rulesText() -> String {

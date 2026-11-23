@@ -31,6 +31,7 @@ struct SettingsScreen: View {
             HStack(alignment: .top, spacing: 18) {
                 VStack(spacing: 14) {
                     everyday
+                    MeetingSyncWell()
                     fixes
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -142,6 +143,107 @@ struct SettingsScreen: View {
         return Row(symbol: symbol, tint: tint ?? (on ? Palette.mint : Palette.slate), title: title, detail: detail) {
             ToggleSwitch(isOn: on, tint: Palette.accent, label: title) { model.perform(.setSwitch(key, !on)) }
         }
+    }
+}
+
+private struct MeetingSyncWell: View {
+    @EnvironmentObject private var model: MenuModel
+    @StateObject private var clientID = Box("")
+    @StateObject private var secret = Box("")
+    @StateObject private var changing = Box(false)
+
+    var body: some View {
+        let sync = model.sync
+        Well("Sync meetings", trailing: "Google Drive") {
+            VStack(alignment: .leading, spacing: 12) {
+                Row(symbol: "arrow.triangle.2.circlepath", tint: sync.connected ? Palette.sky : Palette.slate,
+                    title: sync.account ?? "Google Drive", detail: sync.summary) {
+                    actions(sync)
+                }
+                if let problem = sync.problem {
+                    Text(problem).font(.system(size: 12)).foregroundStyle(Ink.coral).fixedSize(horizontal: false, vertical: true)
+                }
+                if !sync.connected, !sync.signingIn, !sync.hasClient || changing.value { setup(sync) }
+                Text("Each meeting goes to a Gremlin Meetings folder in Drive, and every Mac signed in to the same account gets it. "
+                     + "The copies on this Mac stay, and nothing gets deleted on either side.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder private func actions(_ sync: MeetingSync.Status) -> some View {
+        if sync.signingIn {
+            Button("Cancel") { model.perform(.cancelDriveSignIn) }.buttonStyle(CapsuleButton(neutral: true))
+        } else if sync.connected {
+            HStack(spacing: 8) {
+                if sync.syncing {
+                    DevicesParts.Spinner(tint: Palette.sky, size: 16)
+                } else {
+                    Button("Sync Now") { model.perform(.syncMeetings) }.buttonStyle(CapsuleButton(tint: Palette.sky, soft: true))
+                }
+                Button("Sign Out") { model.perform(.signOutOfDrive) }.buttonStyle(CapsuleButton(neutral: true))
+            }
+        } else if sync.hasClient, !changing.value {
+            HStack(spacing: 8) {
+                Button("Sign In") { model.perform(.signInToDriveAgain) }.buttonStyle(CapsuleButton(tint: Palette.sky))
+                Menu {
+                    Button("Use a Different Google App") { changing.value = true }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .bold)).frame(width: 26, height: 28).contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+        }
+    }
+
+    private func setup(_ sync: MeetingSync.Status) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if sync.clipboardHasClient {
+                Button("Use Clipboard's Google App") { model.perform(.signInToDriveWithClipboard) }
+                    .buttonStyle(CapsuleButton(tint: Palette.sky))
+                    .help("Signs in with the client ID and secret Clipboard syncs with. macOS asks before Gremlin can read them.")
+                Text("Or enter the client ID and secret from your Google Cloud project:")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Enter the client ID and secret from your Google Cloud project, the same on every Mac:")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            TextField("", text: $clientID.value, prompt: Text("Client ID")).syncField()
+            SecureField("", text: $secret.value, prompt: Text("Client secret")).syncField()
+            HStack(spacing: 8) {
+                Button("Sign In") {
+                    model.perform(.signInToDrive(id: clientID.value, secret: secret.value))
+                    secret.value = ""
+                    changing.value = false
+                }
+                .buttonStyle(CapsuleButton(tint: Palette.sky))
+                .disabled(clientID.value.trimmingCharacters(in: .whitespaces).isEmpty || secret.value.trimmingCharacters(in: .whitespaces).isEmpty)
+                if changing.value {
+                    Button("Cancel") { changing.value = false }.buttonStyle(CapsuleButton(neutral: true))
+                }
+            }
+        }
+        .onAppear { if clientID.value.isEmpty { clientID.value = sync.clientID } }
+    }
+}
+
+private extension View {
+    func syncField() -> some View {
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        return textFieldStyle(.plain)
+            .font(.system(size: 12.5, design: .monospaced))
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(shape.fill(Palette.page))
+            .overlay(shape.strokeBorder(Palette.stroke, lineWidth: 1))
     }
 }
 

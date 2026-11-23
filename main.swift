@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let watcher = UniversalControlWatcher()
     private let link = PeerLink()
     private let meetings = Meetings()
+    private let meetingSync = MeetingSync()
     // Auto-fix focus is off by default because it needs Accessibility permission.
     private lazy var switches = [
         Switch(key: AppSwitch.autoFixFocus, feature: focus, defaultOn: false),
@@ -36,7 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let drives = Drives()
     private let displays = Displays()
     private lazy var model = MenuModel(links: links, drives: drives, displays: displays)
-    private lazy var panel = MenuPanel(model: model)
     private let recordings = Recordings()
     private lazy var window = GremlinWindow(model: model, recordings: recordings)
     private lazy var shelf = Shelf(model: model, recordings: recordings)
@@ -76,6 +76,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = links
         sidecar.onChange = { [weak self] in self?.refresh() }
         meetings.onChange = { [weak self] in self?.refresh() }
+        meetingSync.onChange = { [weak self] in self?.refresh() }
+        meetingSync.onArrival = { [weak self] in self?.recordings.refresh() }
+        meetingSync.unfinished = { [weak self] in
+            guard let self else { return [] }
+            let folders = self.meetings.notes.unfinished.union([self.meetings.recording?.folder].compactMap { $0 })
+            return Set(folders.map(\.lastPathComponent))
+        }
         keepAwake.onChange = { [weak self] in self?.refresh() }
         watcher.onChange = { [weak self] in self?.refresh() }
         watcher.link = link
@@ -94,19 +101,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         model.thisMac = SCDynamicStoreCopyComputerName(nil, nil) as String? ?? "This Mac"
         model.perform = { [weak self] action in self?.perform(action) }
-        panel.onOpen = { [weak self] in
-            self?.links.refresh()
-            self?.drives.refresh()
-            self?.displays.refresh()
-            self?.model.awakeOthers = KeepAwake.others()
-            self?.checkRemote()
-            self?.refresh()
-        }
         let opened = { [weak self] in
             self?.links.refresh()
             self?.drives.refresh()
             self?.displays.refresh()
             self?.recordings.refresh()
+            self?.meetingSync.syncIfStale()
             self?.model.awakeOthers = KeepAwake.others()
             self?.checkRemote()
             self?.refresh()
@@ -117,13 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.model.restarted = []
             self?.model.confirmRestartAll = false
         }
-        panel.onClose = { [weak self] in
-            self?.model.restarted = []
-            self?.model.confirmRestartAll = false
-        }
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusClicked)
         statusItem.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
+        meetingSync.start()
         refresh()
         if openedByHand(notification) { window.show() }
     }
@@ -179,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pluck.stop()
         switches.forEach { $0.feature.stop() }
         meetings.notes.stop()
+        meetingSync.stop()
         keepAwake.stop()
     }
 
@@ -218,10 +216,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateModel() {
         model.recording = meetings.recording.map { .init(started: $0.started, audioOnly: $0.audioOnly, hearing: meetings.hearing) }
         model.starting = meetings.starting
+        meetingSync.setPaused(meetings.recording != nil || meetings.starting)
+        model.sync = meetingSync.status
         model.banners = banners()
         if model.notesProgress != meetings.notes.progress {
             // A finished job changes what's in the meeting folders.
-            if meetings.notes.progress == nil { recordings.refresh() }
+            if meetings.notes.progress == nil {
+                recordings.refresh()
+                meetingSync.syncSoon()
+            }
             model.notesProgress = meetings.notes.progress
         }
 
@@ -318,42 +321,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func perform(_ action: MenuModel.Action) {
         switch action {
         case .record(let audioOnly):
-            panel.close()
             meetings.toggle(audioOnly: audioOnly)
         case .stopRecording:
-            panel.close()
             if meetings.recording != nil { meetings.toggle() }
         case .open(let url):
-            panel.close()
             NSWorkspace.shared.open(url)
         case .openTranscript(let folder):
-            panel.close()
             seenTranscript = folder
             NSWorkspace.shared.activateFileViewerSelecting([folder.appendingPathComponent(MeetingNotes.transcript)])
         case .dismissTranscript:
             seenTranscript = meetings.notes.outcome?.folder
         case .fix(let url):
-            panel.close()
             meetings.dismissProblem()
             NSWorkspace.shared.open(url)
         case .dismissProblem:
             meetings.dismissProblem()
         case .showRecordings:
-            panel.close()
             try? FileManager.default.createDirectory(at: Meetings.folder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(Meetings.folder)
-        // These act on the app in front, or capture the screen, so the panel gets out of the way first.
         case .grabText:
-            panel.close()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.pluck.grabText() }
+            pluck.grabText()
         case .pickColor:
-            panel.close()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.pluck.pickColor() }
+            pluck.pickColor()
         case .plainPaste:
-            panel.close()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.pluck.pasteAsPlainText() }
+            pluck.pasteAsPlainText()
         case .fixFocus:
-            panel.close()
             focus.fix()
         case .keepAwake(let stop):
             stop == 0 ? keepAwake.stop() : keepAwake.keep(for: KeepAwake.choices[stop - 1].duration)
@@ -391,10 +383,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             setLogin(on)
         case .setLanguage(let code):
             defaults.set(code, forKey: "meetingLanguage")
-        case .closePanel:
-            panel.close()
+        case .syncMeetings:
+            meetingSync.syncNow()
+        case .signInToDrive(let id, let secret):
+            meetingSync.signIn(clientID: id, secret: secret)
+        case .signInToDriveWithClipboard:
+            meetingSync.signInWithClipboardsClient()
+        case .signInToDriveAgain:
+            meetingSync.signInAgain()
+        case .cancelDriveSignIn:
+            meetingSync.cancelSignIn()
+        case .signOutOfDrive:
+            meetingSync.signOut()
+        case .forgetDriveClient:
+            meetingSync.forgetClient()
         case .openWindow(let module):
-            panel.close()
             window.show(module, page: true)
         case .quit:
             NSApp.terminate(nil)

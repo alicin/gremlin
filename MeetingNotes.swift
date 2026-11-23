@@ -67,8 +67,11 @@ final class MeetingNotes {
     // The last transcript written since launch.
     private(set) var outcome: Outcome?
     private var queue: [URL] = []
-    private var running = false
+    private var running: URL?
     private var current: Process?
+
+    /// Folders waiting for a transcript or a smaller copy, or getting one now.
+    var unfinished: Set<URL> { Set(queue + [running].compactMap { $0 }) }
 
     func process(_ folder: URL) {
         guard !queue.contains(folder) else { return }
@@ -87,12 +90,12 @@ final class MeetingNotes {
     }
 
     private func next() {
-        guard !running, !queue.isEmpty else { return }
-        running = true
+        guard running == nil, !queue.isEmpty else { return }
         let folder = queue.removeFirst()
+        running = folder
         Task {
             await run(folder)
-            running = false
+            running = nil
             setProgress(nil)
             next()
         }
@@ -379,7 +382,7 @@ final class MeetingNotes {
             && ["**Me**", "**Them**", "**Speaker**"].contains { text.contains("\n\($0) · ") }
     }
 
-    // Puts claude's summary above the transcript, and says how it went for the panel: how many action items, or
+    // Puts claude's summary above the transcript, and says how it went for the window: how many action items, or
     // that there's no summary.
     private func addSummary(to folder: URL, title: String, length: String, event: MeetingCalendar.Event?) async -> String {
         let transcript = folder.appendingPathComponent(Self.transcript)

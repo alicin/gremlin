@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 // The look shared by the Gremlin window and the shelf: Gremlin's holographic paw on deep indigo, a vivid color
-// per module, and bento-style tiles. The menu bar panel keeps its own glass look in Glass.swift.
+// per module, and bento-style tiles. The link picker and the call prompts keep their own glass look in Glass.swift.
 
 extension Color {
     init(hex: UInt32, opacity: Double = 1) {

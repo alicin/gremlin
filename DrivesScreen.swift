@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 // Drives in the window: a card for each drive, vivid while it's mounted, and an editor that slides in beside them.
-// The editor keeps its own selection rather than `Drives.editing`, which the menu bar panel's drive page uses.
 
 private enum Leaf {
     static let fill = Palette.lime

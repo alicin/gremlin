@@ -70,7 +70,6 @@ final class Drives: ObservableObject {
     @Published var config: DriveConfig { didSet { save() } }
     @Published private(set) var statuses: [UUID: Status] = [:]
     @Published private(set) var sshHosts: [String] = []
-    @Published var editing: UUID?
 
     private let folder: URL
     private var sessions: [UUID: Session] = [:]
