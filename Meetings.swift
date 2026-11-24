@@ -12,6 +12,7 @@ final class Meetings: NSObject, SCStreamDelegate {
         let folder: URL
         let started: Date
         let audioOnly: Bool
+        var display: CGDirectDisplayID?
     }
 
     struct Problem {
@@ -291,7 +292,7 @@ final class Meetings: NSObject, SCStreamDelegate {
             grewAt = Date()
             warned = []
             problem = nil
-            recording = Recording(folder: target, started: Date(), audioOnly: audioOnly)
+            recording = Recording(folder: target, started: Date(), audioOnly: audioOnly, display: audioOnly ? nil : display.displayID)
             Log.write("Meeting recording: " + (audioOnly ? "audio only" : "display \(display.displayID) at \(config.width)x\(config.height)")
                       + ", call \(call.sorted())")
         } catch {
@@ -302,6 +303,25 @@ final class Meetings: NSObject, SCStreamDelegate {
             } else {
                 alert(Problem(title: "Couldn't start recording", message: "Screen Recording is off for Gremlin",
                               fix: URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")))
+            }
+        }
+    }
+
+    /// Moves a screen recording to another display. The movie keeps its size, so a display of another shape fits inside
+    /// it with bars.
+    func record(display id: CGDirectDisplayID) {
+        guard let stream, let recording, !recording.audioOnly, recording.display != id else { return }
+        Task {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard let display = content.displays.first(where: { $0.displayID == id }) else { return }
+                try await stream.updateContentFilter(SCContentFilter(display: display, excludingApplications: [], exceptingWindows: []))
+                guard self.stream === stream else { return }
+                self.recording?.display = id
+                Log.write("Meeting recording: switched to display \(id)")
+                onChange?()
+            } catch {
+                Log.write("Meeting recording: couldn't switch to display \(id): \(error.localizedDescription)")
             }
         }
     }
@@ -414,12 +434,22 @@ final class Meetings: NSObject, SCStreamDelegate {
     }
 
     // The app's biggest window on screen, in global display coordinates.
+    // The call's window: one titled like a call, or else the app's front window. A browser's biggest window is often
+    // another one on another display. The window list runs front to back.
     private static func window(of pid: pid_t) -> CGRect? {
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        return windows.compactMap { info -> CGRect? in
-            guard info[kCGWindowLayer as String] as? Int == 0, info[kCGWindowOwnerPID as String] as? pid_t == pid else { return nil }
-            return (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }
-        }.max { $0.width * $0.height < $1.width * $1.height }
+        let candidates = windows.compactMap { info -> (title: String, frame: CGRect)? in
+            guard info[kCGWindowLayer as String] as? Int == 0, info[kCGWindowOwnerPID as String] as? pid_t == pid,
+                  let frame = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }),
+                  frame.width >= 320, frame.height >= 240 else { return nil }
+            return ((info[kCGWindowName as String] as? String ?? "").lowercased(), frame)
+        }
+        return (candidates.first { looksLikeCall($0.title) } ?? candidates.first)?.frame
+    }
+
+    nonisolated static func looksLikeCall(_ title: String) -> Bool {
+        title.hasPrefix("meet - ") || title.hasPrefix("meet – ") || title.hasPrefix("meet: ")
+            || ["google meet", "zoom meeting", "zoom workplace", "microsoft teams", "webex", "huddle", "whereby", "jitsi"].contains(where: title.contains)
     }
 
     // Processes that take the mic for calls: browsers (Safari's is com.apple.WebKit.GPU) and meeting apps.

@@ -433,9 +433,12 @@ struct HomeRecordWidget: View {
                         .font(.system(size: 44, weight: .bold, design: .rounded))
                         .monospacedDigit()
                 }
-                Text((recording.audioOnly ? "Audio only" : "Screen and audio") + (recording.hearing ? " · hearing sound" : " · no sound yet"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
+                HStack(spacing: 0) {
+                    RecordingScreenMenu(model: model, fallback: recording.audioOnly ? "Audio only" : "Screen and audio")
+                    Text(recording.hearing ? " · hearing sound" : " · no sound yet").lineLimit(1)
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
             }
             .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
         } else {

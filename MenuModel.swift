@@ -35,6 +35,9 @@ final class MenuModel: ObservableObject {
         case cancelDriveSignIn
         case signOutOfDrive
         case forgetDriveClient
+        case recordScreen(UInt32)
+        case logInToClaude
+        case summarize(URL)
         case quit
     }
 
@@ -42,6 +45,12 @@ final class MenuModel: ObservableObject {
         var started: Date
         var audioOnly: Bool
         var hearing: Bool
+        var screen: UInt32?
+    }
+
+    struct Screen: Equatable, Identifiable {
+        let id: UInt32
+        let name: String
     }
 
     struct Banner: Equatable, Identifiable {
@@ -114,6 +123,8 @@ final class MenuModel: ObservableObject {
     @Published var restarted: Set<Int> = []
     @Published var confirmRestartAll = false
     @Published var sync = MeetingSync.Status()
+    @Published var screens: [Screen] = []
+    @Published var claudeLoggedOut = false
 
     var perform: (Action) -> Void = { _ in }
     let links: Links

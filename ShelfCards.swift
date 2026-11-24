@@ -190,7 +190,7 @@ private struct ShelfMeetingsBody: View {
         VStack(alignment: .leading, spacing: 12) {
             Group {
                 if let recording = model.recording {
-                    ShelfLiveTile(recording: recording) { s.run(.stopRecording, closing: true) }
+                    ShelfLiveTile(model: s.model, recording: recording) { s.run(.stopRecording, closing: true) }
                 } else if model.starting {
                     ShelfStartingTile()
                 } else {
@@ -268,6 +268,7 @@ private struct ShelfRecordTile: View {
 }
 
 private struct ShelfLiveTile: View {
+    @ObservedObject var model: MenuModel
     let recording: MenuModel.Recording
     let stop: () -> Void
 
@@ -280,8 +281,8 @@ private struct ShelfLiveTile: View {
                         .lineLimit(1)
                         .fixedSize()
                 }
-                Text(recording.audioOnly ? "Audio only" : "Screen and audio")
-                    .font(.system(size: 10.5, weight: .medium)).opacity(0.85).lineLimit(1).fixedSize()
+                RecordingScreenMenu(model: model, fallback: recording.audioOnly ? "Audio only" : "Screen and audio")
+                    .font(.system(size: 10.5, weight: .medium)).opacity(0.85)
             }
             .layoutPriority(1)
             Spacer(minLength: 0)

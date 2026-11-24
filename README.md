@@ -50,7 +50,7 @@ It's a handful of Swift files built from the command line. It needs nothing else
 
 **Screen** records the screen the pointer is on, with all sound and your mic. **Audio** records just the two sides of the call, with no video. Both are on Home's Record widget and at the top of the Meetings page.
 
-While it runs, the paw turns into a red record button with how long it has been going. **Click it to stop**, or right-click it for the window. The Record widget shows the time and bars that move while sound is coming in and lie flat through silence.
+While it runs, the paw turns into a red record button with how long it has been going. **Click it to stop**, or right-click it for the window. The Record widget shows the time and bars that move while sound is coming in and lie flat through silence. With more than one display, it also shows which one is being recorded: click it to switch to another display mid-call, and the same movie carries on there, with bars if the shape differs. The Meetings page and the shelf have the same menu.
 
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>R</kbd> records the screen and audio
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>A</kbd> records audio only
@@ -59,7 +59,7 @@ Either one stops a recording that's running.
 
 ### It offers when a call starts
 
-When a browser or a meeting app (Zoom, Teams, Webex, Slack, FaceTime) has used the mic for 5 seconds, a prompt under the menu bar asks whether to record the call. **Record** records the screen the call's window is on, **Audio Only** skips the video, and **Not now** leaves that call alone until the app lets go of the mic.
+When a browser or a meeting app (Zoom, Teams, Webex, Slack, FaceTime) has used the mic for 5 seconds, a prompt under the menu bar asks whether to record the call. **Record** records the screen the call's window is on (a window titled like a call, such as a Meet tab, or else the app's front window), **Audio Only** skips the video, and **Not now** leaves that call alone until the app lets go of the mic.
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/call-offer-dark.jpg"><img src="docs/call-offer-light.jpg" width="480" alt="A prompt offering to record a Safari call, with Record, Audio Only and Not now"></picture>
@@ -89,7 +89,7 @@ The **Meetings** page lists every recording by day. Pick one for its summary, de
 An audio-only recording ends up as `recording.m4a` instead.
 
 - **Transcript.** Written on the Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`), labelled **Me** (your mic) and **Them** (the call). whisper detects the language, Turkish and English included, or you can pick one under **Transcript language** in Settings. Without headphones your mic also hears the call, and those duplicate lines are dropped. Without whisper, Gremlin falls back to Apple's speech recognition, which only knows a few languages.
-- **Summary.** If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items in English at the top, using your Claude login rather than an API key.
+- **Summary.** If the [Claude Code](https://claude.com/claude-code) CLI is installed, `claude -p` adds a summary, decisions and action items in English at the top, using your Claude login rather than an API key. When that login has run out, Home says so with **Log In**, which opens Terminal on `claude auth login`, and Gremlin writes the missing summaries once you're logged in again. **Summarize** on a meeting without one tries again by hand.
 - **Names.** With calendar access, a recording is named after the event it happened during, and the transcript and summary list who was invited.
 - **Smaller copy.** [ffmpeg](https://ffmpeg.org) (`brew install ffmpeg`) compresses the video with x265 at CRF 26 and mixes the call and your mic into one audio track. While any app is using the mic it runs at background priority, so it doesn't slow down a call. An hour-long call takes roughly 15 minutes on an M5.
 

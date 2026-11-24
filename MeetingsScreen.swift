@@ -815,6 +815,7 @@ private struct MeetingDetail: View {
     let notes: Recordings.Notes?
     let checked: Set<Int>
     let toggle: (Int) -> Void
+    @EnvironmentObject private var model: MenuModel
     /// Once the transcript has come into view, the jump button stays out of the way.
     @StateObject private var reachedTranscript = Box(false)
 
@@ -891,10 +892,20 @@ private struct MeetingDetail: View {
             Well("Summary") { MeetingSkeleton(lines: [1, 0.94, 0.6]) }
         } else if item.transcribed {
             Well("Summary") {
-                Text("No summary yet. With the Claude Code CLI installed, Gremlin writes one, with decisions and action items.")
+                Text(model.claudeLoggedOut ? "No summary yet, because Claude Code is logged out. Log in, and Gremlin writes it with the decisions and action items."
+                     : MeetingNotes.claude == nil ? "No summary yet. With the Claude Code CLI installed, Gremlin writes one, with decisions and action items."
+                     : "No summary yet. Claude Code didn't write one; try again.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if model.claudeLoggedOut {
+                    Button("Log In to Claude Code") { model.perform(.logInToClaude) }
+                        .buttonStyle(CapsuleButton(tint: Palette.coral))
+                        .help("Opens Terminal on claude auth login")
+                } else if MeetingNotes.claude != nil {
+                    Button("Summarize") { model.perform(.summarize(item.folder)) }
+                        .buttonStyle(CapsuleButton(tint: Palette.coral))
+                }
             }
         } else if transcribing {
             Well("Summary") { MeetingSkeleton(lines: [1, 0.94, 0.6]) }
@@ -1234,6 +1245,7 @@ private struct MeetingStatusTile: View {
 private struct MeetingLiveDetail: View {
     let recording: MenuModel.Recording
     let stop: () -> Void
+    @EnvironmentObject private var model: MenuModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1242,7 +1254,7 @@ private struct MeetingLiveDetail: View {
                     LiveDot(color: .white, size: 8)
                     Text("Recording").font(.system(size: 14, weight: .bold, design: .rounded))
                     Spacer()
-                    Text(recording.audioOnly ? "Audio only" : "Screen and audio")
+                    RecordingScreenMenu(model: model, fallback: recording.audioOnly ? "Audio only" : "Screen and audio")
                         .font(.system(size: 12.5, weight: .semibold))
                         .padding(.horizontal, 10)
                         .frame(height: 24)
@@ -1451,6 +1463,38 @@ private struct MeetingSkeleton: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Which display a screen recording takes, and a menu to move it to another one. With one display, or audio only, it's
+/// just the fallback text.
+struct RecordingScreenMenu: View {
+    @ObservedObject var model: MenuModel
+    let fallback: String
+
+    var body: some View {
+        if let current = model.recording?.screen, model.screens.count > 1 {
+            Menu {
+                Picker("Record", selection: Binding(get: { current }, set: { model.perform(.recordScreen($0)) })) {
+                    ForEach(model.screens) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "display")
+                    Text(model.screens.first { $0.id == current }?.name ?? "Screen").lineLimit(1)
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                }
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Record another display")
+        } else {
+            Text(fallback).lineLimit(1)
         }
     }
 }

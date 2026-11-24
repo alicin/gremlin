@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Speech
 @preconcurrency import UserNotifications
@@ -69,6 +70,9 @@ final class MeetingNotes {
     private var queue: [URL] = []
     private var running: URL?
     private var current: Process?
+    /// Summaries wait while Claude Code is logged out, and get written once it's logged in again.
+    private(set) var claudeLoggedOut = false
+    private var loginWatch: Task<Void, Never>?
 
     /// Folders waiting for a transcript or a smaller copy, or getting one now.
     var unfinished: Set<URL> { Set(queue + [running].compactMap { $0 }) }
@@ -386,8 +390,13 @@ final class MeetingNotes {
     // that there's no summary.
     private func addSummary(to folder: URL, title: String, length: String, event: MeetingCalendar.Event?) async -> String {
         let transcript = folder.appendingPathComponent(Self.transcript)
+        guard let claude = Self.claude else { return "no summary" }
+        if await Self.loggedIn(claude) == false {
+            loggedOut(claude, missing: folder)
+            return "no summary, Claude Code is logged out"
+        }
         setProgress(Progress(title: "Summarizing \(title)", detail: "\(length) · claude is writing it", folder: folder))
-        guard let claude = Self.claude, let summary = await summarize(transcript, claude: claude, event: event),
+        guard let summary = await summarize(transcript, claude: claude, event: event),
               let body = try? String(contentsOf: transcript, encoding: .utf8), let marker = body.range(of: "## Transcript")
         else { return "no summary" }
         do {
@@ -420,8 +429,68 @@ final class MeetingNotes {
             if result.status == 0, !summary.isEmpty { return summary }
             let reason = String(decoding: result.errors + result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             Log.write("Meeting \(name): claude exited \(result.status), try \(attempt + 1) of 3: \(reason.suffix(300))")
+            if await Self.loggedIn(claude) == false {
+                loggedOut(claude, missing: transcript.deletingLastPathComponent())
+                return nil
+            }
         }
         return nil
+    }
+
+    private nonisolated static func loggedIn(_ claude: URL) async -> Bool? {
+        let process = Process()
+        process.executableURL = claude
+        process.arguments = ["auth", "status"]
+        process.standardInput = FileHandle.nullDevice
+        let result = await wait(for: process, timeout: 20, yieldsDuringCalls: false, onOutput: nil)
+        struct Status: Decodable { let loggedIn: Bool }
+        return (try? JSONDecoder().decode(Status.self, from: result.output))?.loggedIn
+    }
+
+    private func loggedOut(_ claude: URL, missing folder: URL) {
+        if !claudeLoggedOut { Log.write("Meetings: Claude Code is logged out, so \(folder.lastPathComponent) waits for its summary") }
+        claudeLoggedOut = true
+        onChange?()
+        watchForLogin(claude)
+    }
+
+    // Logging in happens in Terminal, out of Gremlin's sight, so it asks claude every 30 seconds until it is.
+    private func watchForLogin(_ claude: URL) {
+        guard loginWatch == nil else { return }
+        loginWatch = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                if await Self.loggedIn(claude) == true { break }
+            }
+            loginWatch = nil
+            guard !Task.isCancelled else { return }
+            claudeLoggedOut = false
+            Log.write("Meetings: Claude Code is logged in again, writing the missing summaries")
+            onChange?()
+            summarizeMissing()
+        }
+    }
+
+    /// Queues every meeting that has a transcript but no summary.
+    func summarizeMissing() {
+        let folders = (try? FileManager.default.contentsOfDirectory(at: Meetings.folder, includingPropertiesForKeys: nil)) ?? []
+        for folder in folders.sorted(by: { $0.path < $1.path }) where Self.needsSummary(folder) { process(folder) }
+    }
+
+    /// Opens Terminal on `claude auth login`, the one step Gremlin can't take for you.
+    func logInToClaude() {
+        guard let claude = Self.claude else { return }
+        let script = FileManager.default.temporaryDirectory.appendingPathComponent("Log in to Claude Code.command")
+        let quoted = "'" + claude.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        do {
+            try "#!/bin/sh\n\(quoted) auth login\n".write(to: script, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        } catch {
+            Log.write("Meetings: couldn't write the Claude Code login script: \(error.localizedDescription)")
+            return
+        }
+        NSWorkspace.shared.open(script)
+        watchForLogin(claude)
     }
 
     // MARK: Compression
@@ -492,6 +561,7 @@ final class MeetingNotes {
     // ffmpeg would outlive Gremlin and race the copy the next launch starts.
     func stop() {
         current?.terminate()
+        loginWatch?.cancel()
     }
 
     private func run(_ executable: URL, _ arguments: [String], input: URL? = nil, directory: URL? = nil,

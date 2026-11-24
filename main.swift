@@ -76,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.shelf.toggle()
         }
         NSApp.servicesProvider = links
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
         sidecar.onChange = { [weak self] in self?.refresh() }
         meetings.onChange = { [weak self] in self?.refresh() }
         meetingSync.onChange = { [weak self] in self?.refresh() }
@@ -222,7 +225,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateModel() {
-        model.recording = meetings.recording.map { .init(started: $0.started, audioOnly: $0.audioOnly, hearing: meetings.hearing) }
+        model.recording = meetings.recording.map { .init(started: $0.started, audioOnly: $0.audioOnly, hearing: meetings.hearing, screen: $0.display) }
+        model.screens = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }.compactMap { screen in
+            (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID).map {
+                .init(id: $0, name: screen.localizedName.hasPrefix("Built-in") ? "Built-in Display" : screen.localizedName)
+            }
+        }
+        model.claudeLoggedOut = meetings.notes.claudeLoggedOut
         model.starting = meetings.starting
         meetingSync.setPaused(meetings.recording != nil || meetings.starting)
         model.sync = meetingSync.status
@@ -282,6 +291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             banners.append(.init(id: "problem", kind: .problem, symbol: problem.title.contains("mic") ? "mic.slash.fill" : "exclamationmark",
                                  title: problem.title, detail: problem.message, button: problem.fix == nil ? "OK" : "Fix",
                                  action: problem.fix.map { .fix($0) } ?? .dismissProblem, dismiss: problem.fix == nil ? nil : .dismissProblem))
+        }
+        if meetings.notes.claudeLoggedOut {
+            banners.append(.init(id: "claude", kind: .problem, symbol: "sparkles", title: "Claude Code is logged out",
+                                 detail: "Meetings get no summary until you log in again. Gremlin writes the missing ones then.",
+                                 button: "Log In", action: .logInToClaude))
         }
         if let progress = meetings.notes.progress {
             banners.append(.init(id: "progress", kind: .working, title: progress.title, detail: progress.detail, button: "Open",
@@ -405,6 +419,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             meetingSync.signOut()
         case .forgetDriveClient:
             meetingSync.forgetClient()
+        case .recordScreen(let id):
+            meetings.record(display: id)
+        case .logInToClaude:
+            meetings.notes.logInToClaude()
+        case .summarize(let folder):
+            meetings.notes.process(folder)
         case .openWindow(let module):
             window.show(module, page: true)
         case .quit:
