@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 // Cables in the window: the map of the Mac's ports up top, and below it everything about the selected one, from a
-// plain verdict down to the raw e-marker words. The technical parts fold away until asked for.
+// plain verdict down to the raw e-marker words, all of it on show.
 struct CablesScreen: View {
     @EnvironmentObject private var cables: Cables
 
@@ -10,14 +10,8 @@ struct CablesScreen: View {
         let stories = Self.stories(cables)
         let story = stories.first { $0.port.id == cables.selected }
         ScreenCard(module: .cables) {
-            HStack(spacing: 10) {
-                HeaderNote(text: headerText, symbol: cables.chargingPort != nil ? "bolt.fill" : "cable.connector")
-                    .contentTransition(.numericText())
-                BandToggle(title: "Details", symbol: cables.showsDetails ? "eye.fill" : "eye", on: cables.showsDetails) {
-                    withAnimation(Motion.snappy) { cables.showsDetails.toggle() }
-                }
-                .help(cables.showsDetails ? "Fold the technical details away" : "Show every technical detail")
-            }
+            HeaderNote(text: headerText, symbol: cables.chargingPort != nil ? "bolt.fill" : "cable.connector")
+                .contentTransition(.numericText())
         } content: {
             VStack(spacing: 16) {
                 if stories.isEmpty {
@@ -85,40 +79,10 @@ private struct ToastSetting: View {
     }
 }
 
-/// A toggle that sits on a screen's colored band, like a HeaderNote you can press.
-struct BandToggle: View {
-    let title: String
-    let symbol: String
-    let on: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(on ? AnyShapeStyle(Module.cables.ink) : AnyShapeStyle(.white))
-                .padding(.horizontal, 14).frame(height: 32)
-                .background(Capsule().fill(on ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.2))))
-                .overlay(Capsule().strokeBorder(.white.opacity(0.3), lineWidth: 0.5))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(PressStyle())
-        .accessibilityValue(on ? "On" : "Off")
-    }
-}
-
 // MARK: - The selected port
 
 private struct PortDetail: View {
     let story: PortStory
-    @EnvironmentObject private var cables: Cables
-    @StateObject private var expanded = Box<[String: Bool]>([:])
-
-    private func isOpen(_ key: String) -> Bool { expanded.value[key] ?? cables.showsDetails }
-
-    private func toggle(_ key: String) {
-        withAnimation(Motion.snappy) { expanded.value[key] = !isOpen(key) }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -134,53 +98,34 @@ private struct PortDetail: View {
             } else {
                 EmptyPort(story: story)
             }
-            if isOpen("technical") {
-                Technical(story: story)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-            HStack {
-                Spacer()
-                Button { toggle("technical") } label: {
-                    Label(isOpen("technical") ? "Hide port, cable and chip details" : "Port, cable and chip details",
-                          systemImage: isOpen("technical") ? "chevron.up" : "chevron.down")
-                }
-                .buttonStyle(CapsuleButton(neutral: true))
-                Spacer()
-            }
+            Technical(story: story)
         }
-        .onChange(of: cables.showsDetails) { expanded.value = [:] }
     }
 
+    /// Two columns that each stack at their own height, so a long device list doesn't stretch the tile beside it.
     @ViewBuilder private var tiles: some View {
         let power = story.port.contract != nil || story.charges
         let data = PortStory.dataRate(story.port) != nil
-        if power || data {
-            HStack(alignment: .top, spacing: 14) {
-                if power {
-                    PowerTile(story: story, open: isOpen("power")) { toggle("power") }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let displays = !story.port.displays.isEmpty
+        let devices = !story.port.devices.isEmpty
+        let left = power || displays
+        let right = data || devices
+        HStack(alignment: .top, spacing: 14) {
+            if left {
+                VStack(spacing: 14) {
+                    if power { PowerTile(story: story) }
+                    if displays { DisplayTile(story: story) }
+                    if !right, devices { DevicesTile(story: story, devices: story.port.devices) }
                 }
-                if data {
-                    DataTile(story: story, open: isOpen("data")) { toggle("data") }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                .frame(maxWidth: .infinity)
             }
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        let displays = story.port.displays
-        let devices = story.port.devices.filter { !$0.hub && $0.classCode != 0x11 }
-        if !displays.isEmpty || !devices.isEmpty {
-            HStack(alignment: .top, spacing: 14) {
-                if !displays.isEmpty {
-                    DisplayTile(story: story, open: isOpen("display")) { toggle("display") }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if right {
+                VStack(spacing: 14) {
+                    if data { DataTile(story: story) }
+                    if devices { DevicesTile(story: story, devices: story.port.devices) }
                 }
-                if !devices.isEmpty {
-                    DevicesTile(story: story, devices: devices, open: isOpen("devices")) { toggle("devices") }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                .frame(maxWidth: .infinity)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -334,13 +279,11 @@ private struct ChainTile: View {
 
 // MARK: - Tiles
 
-/// A tile with a title, its main content, and technical rows that fold out under it.
+/// A tile with a title, its main content, and its technical rows under it.
 private struct Tile<Content: View>: View {
     let title: String
     let symbol: String
     let facts: [PortStory.Fact]
-    let open: Bool
-    let toggle: () -> Void
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -349,30 +292,12 @@ private struct Tile<Content: View>: View {
                 Image(systemName: symbol).font(.system(size: 12, weight: .bold)).foregroundStyle(Ink.emerald)
                 Text(title).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(.secondary)
                 Spacer()
-                if !facts.isEmpty {
-                    Button(action: toggle) {
-                        HStack(spacing: 3) {
-                            Text(open ? "Less" : "More")
-                            Image(systemName: "chevron.down").rotationEffect(.degrees(open ? 180 : 0))
-                        }
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(Ink.emerald)
-                        .padding(.horizontal, 8)
-                        .frame(height: 22)
-                        .background(Capsule().fill(Palette.emerald.opacity(0.12)))
-                    }
-                    .buttonStyle(PressStyle())
-                    .help(open ? "Hide the technical details" : "Show the technical details")
-                }
             }
             content
-            if open, !facts.isEmpty {
-                FactTable(facts: facts)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            if !facts.isEmpty { FactTable(facts: facts) }
         }
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.well))
     }
 }
@@ -417,8 +342,6 @@ struct FactTable: View {
 
 private struct PowerTile: View {
     let story: PortStory
-    let open: Bool
-    let toggle: () -> Void
 
     var body: some View {
         let port = story.port
@@ -426,7 +349,7 @@ private struct PowerTile: View {
         let charger = port.charger
         let cableLimit = port.cable.flatMap { $0.poweredDevice ? nil : $0.maxMilliwatts }
         let live = story.charges ? story.charging.inputMilliwatts : nil
-        Tile(title: story.charges ? "Power in" : "Power", symbol: "bolt.fill", facts: story.powerFacts, open: open, toggle: toggle) {
+        Tile(title: story.charges ? "Power in" : "Power", symbol: "bolt.fill", facts: story.powerFacts) {
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(live.map(Units.watts) ?? contract.map { Units.watts($0.milliwatts) } ?? "—")
@@ -522,8 +445,6 @@ private struct BatteryGlyph: View {
 
 private struct DataTile: View {
     let story: PortStory
-    let open: Bool
-    let toggle: () -> Void
 
     private struct Bar: Identifiable {
         let label: String
@@ -538,7 +459,7 @@ private struct DataTile: View {
         let now = PortStory.dataRate(port)
         let bars = bars(port, now: now?.bitsPerSecond)
         let top = bars.map(\.bitsPerSecond).max() ?? 1
-        Tile(title: "Data", symbol: "arrow.left.arrow.right", facts: story.thunderboltFacts + story.usbFacts, open: open, toggle: toggle) {
+        Tile(title: "Data", symbol: "arrow.left.arrow.right", facts: story.thunderboltFacts + story.usbFacts) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(now.map { Units.rate($0.bitsPerSecond) } ?? "—")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
@@ -576,12 +497,10 @@ private struct DataTile: View {
 
 private struct DisplayTile: View {
     let story: PortStory
-    let open: Bool
-    let toggle: () -> Void
 
     var body: some View {
         let displays = story.port.displays
-        Tile(title: displays.count == 1 ? "Display" : "Displays", symbol: "display", facts: displays.flatMap(story.displayFacts), open: open, toggle: toggle) {
+        Tile(title: displays.count == 1 ? "Display" : "Displays", symbol: "display", facts: displays.flatMap(story.displayFacts)) {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(displays) { display in
                     HStack(spacing: 11) {
@@ -608,25 +527,19 @@ private struct DisplayTile: View {
 private struct DevicesTile: View {
     let story: PortStory
     let devices: [USBDeviceInfo]
-    let open: Bool
-    let toggle: () -> Void
-    @StateObject private var all = Box(false)
 
     var body: some View {
         let slow = PortStory.usb2Limited(story.port)
-        let shown = all.value || devices.count <= 6 ? devices : Array(devices.prefix(5))
-        let hubs = story.port.devices.filter(\.hub).count
-        Tile(title: devices.count == 1 ? "USB device" : "\(devices.count) USB devices", symbol: "cable.connector.horizontal",
-             facts: [], open: open, toggle: toggle) {
+        let count = devices.filter { !$0.hub && $0.classCode != 0x11 }.count
+        Tile(title: count == 0 ? "USB" : count == 1 ? "1 USB device" : "\(count) USB devices", symbol: "cable.connector.horizontal", facts: []) {
             VStack(alignment: .leading, spacing: 9) {
-                ForEach(shown) { device in
+                ForEach(devices) { device in
                     HStack(spacing: 10) {
-                        IconTile(symbol: device.symbol, tint: device == slow ? Palette.warn : Palette.slate, size: 26)
-                        VStack(alignment: .leading, spacing: 0) {
+                        IconTile(symbol: device.symbol, tint: device == slow ? Palette.warn : device.hub ? Palette.slate.opacity(0.6) : Palette.slate, size: 26)
+                        VStack(alignment: .leading, spacing: 1) {
                             Text(device.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                            if let line = vendorLine(device) {
-                                Text(line).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                            }
+                            Text(detailLine(device)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                .textSelection(.enabled)
                         }
                         Spacer(minLength: 6)
                         if let speed = device.linkBitsPerSecond {
@@ -638,20 +551,19 @@ private struct DevicesTile: View {
                                 .background(Capsule().fill(Palette.page))
                         }
                     }
-                    .help(story.deviceFacts(device).map { "\($0.label): \($0.value)" }.joined(separator: "\n"))
-                }
-                HStack {
-                    if devices.count > 6 {
-                        Button(all.value ? "Show fewer" : "Show all \(devices.count)") { withAnimation(Motion.snappy) { all.value.toggle() } }
-                            .buttonStyle(CapsuleButton(neutral: true))
-                    }
-                    Spacer()
-                    if hubs > 0 {
-                        Text(hubs == 1 ? "1 hub not shown" : "\(hubs) hubs not shown").font(.system(size: 11)).foregroundStyle(.tertiary)
-                    }
+                    .padding(.leading, CGFloat(min(device.depth, 4)) * 16)
                 }
             }
         }
+    }
+
+    private func detailLine(_ device: USBDeviceInfo) -> String {
+        var parts = [vendorLine(device)].compactMap { $0 }
+        if device.hub { parts.append("hub") }
+        parts.append(String(format: "%04X:%04X", device.vendorID, device.productID))
+        parts.append(String(format: "USB %x.%x", device.bcdUSB >> 8, (device.bcdUSB >> 4) & 0xF))
+        if let ma = device.milliamps { parts.append("\(ma) mA") }
+        return parts.joined(separator: " · ")
     }
 
     /// Docks show up as a few USB devices of their own, for their buttons, audio and firmware.
@@ -699,6 +611,7 @@ private struct Technical: View {
             ("Port", "rectangle.portrait.and.arrow.right", story.portFacts),
             ("Cable chip", "cable.connector", story.cableFacts),
             ("Device's Power Delivery ID", "person.text.rectangle", story.partnerFacts),
+            ("USB links", "arrow.left.arrow.right", PortStory.dataRate(story.port) == nil ? story.usbFacts : []),
         ].filter { !$0.2.isEmpty }
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 14, alignment: .top)], alignment: .leading, spacing: 14) {
             ForEach(sections, id: \.0) { section in

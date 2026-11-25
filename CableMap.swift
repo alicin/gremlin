@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // The Cables page's hero: the Mac seen from above with its ports where they really are, and a cable from each port
@@ -142,19 +143,20 @@ private struct CableLines: View {
     let liveMilliwatts: Int?
 
     var body: some View {
-        let flowing = layout.items.contains { $0.story.charges }
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !flowing || Motion.reduced)) { context in
+        ZStack {
             Canvas { canvas, _ in
-                let t = context.date.timeIntervalSinceReferenceDate
-                for item in layout.items { draw(item, in: &canvas, time: t) }
+                for item in layout.items { draw(item, in: &canvas) }
+            }
+            if let item = layout.items.first(where: { $0.story.charges }) {
+                PowerDots(curve: Bezier(item.start, item.end),
+                          watts: Double(liveMilliwatts ?? item.story.port.contract?.winning?.milliwatts ?? 0) / 1000)
             }
         }
         .allowsHitTesting(false)
     }
 
-    private func draw(_ item: MapLayout.Item, in canvas: inout GraphicsContext, time: Double) {
-        let curve = Bezier(item.start, item.end)
-        let path = curve.path
+    private func draw(_ item: MapLayout.Item, in canvas: inout GraphicsContext) {
+        let path = Bezier(item.start, item.end).path
         let isSelected = item.story.port.id == selected
         guard item.story.connected else {
             canvas.stroke(path, with: .color(.secondary.opacity(isSelected ? 0.5 : 0.28)),
@@ -173,26 +175,85 @@ private struct CableLines: View {
         var shine = canvas
         shine.translateBy(x: 0, y: -1.2)
         shine.stroke(path, with: .color(.white.opacity(0.28)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+    }
+}
 
-        guard item.story.charges else { return }
-        let watts = Double(liveMilliwatts ?? item.story.port.contract?.winning?.milliwatts ?? 0) / 1000
-        let period = max(0.9, 2.6 - watts / 45)
-        let count = 4
-        for i in 0..<count {
-            let phase = Motion.reduced ? Double(i) / Double(count) + 0.12 : (time / period + Double(i) / Double(count)).truncatingRemainder(dividingBy: 1)
-            let p = curve.point(CGFloat(phase))
-            let fade = min(1, min(phase, 1 - phase) * 6)
-            let dot = CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)
-            var halo = canvas
-            halo.addFilter(.blur(radius: 3))
-            halo.fill(Path(ellipseIn: dot.insetBy(dx: -2, dy: -2)), with: .color(Palette.holoLemon.opacity(0.8 * fade)))
-            canvas.fill(Path(ellipseIn: dot), with: .color(Color(hex: 0xFFF6C2).opacity(fade)))
+/// Power running into the Mac along the charging cable, faster the more watts flow. Core Animation moves the dots
+/// along the cable's path in the render server, so an open page costs Gremlin nothing per frame.
+private struct PowerDots: NSViewRepresentable {
+    let curve: Bezier
+    let watts: Double
+
+    func makeNSView(context: Context) -> DotsView { DotsView() }
+
+    func updateNSView(_ view: DotsView, context: Context) {
+        view.run(curve: curve, period: max(0.9, 2.6 - watts / 45))
+    }
+
+    final class DotsView: NSView {
+        private var dots: [CALayer] = []
+        private var running: (Bezier, Double)?
+
+        override var isFlipped: Bool { true }
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            running = nil
+        }
+
+        func run(curve: Bezier, period: Double) {
+            // Small swings in live watts would restart the animation and make the dots jump.
+            if let running, running.0 == curve, abs(running.1 - period) < 0.25 { return }
+            running = (curve, period)
+            dots.forEach { $0.removeFromSuperlayer() }
+            guard let layer else { return }
+            let path = CGMutablePath()
+            path.move(to: curve.p0)
+            path.addCurve(to: curve.p3, control1: curve.c1, control2: curve.c2)
+            let count = 4
+            let now = CACurrentMediaTime()
+            dots = (0..<count).map { i in
+                let dot = CALayer()
+                dot.bounds = CGRect(x: 0, y: 0, width: 6, height: 6)
+                dot.cornerRadius = 3
+                dot.backgroundColor = NSColor(hex: 0xFFF6C2).cgColor
+                dot.shadowColor = NSColor(hex: 0xF2E58A).cgColor
+                dot.shadowOpacity = 1
+                dot.shadowRadius = 4
+                dot.shadowOffset = .zero
+                let offset = period * Double(i) / Double(count)
+                if Motion.reduced {
+                    dot.position = curve.point(0.12 + CGFloat(i) / CGFloat(count))
+                } else {
+                    let move = CAKeyframeAnimation(keyPath: "position")
+                    move.path = path
+                    move.calculationMode = .paced
+                    let fade = CAKeyframeAnimation(keyPath: "opacity")
+                    fade.values = [0, 1, 1, 0]
+                    fade.keyTimes = [0, 0.16, 0.84, 1]
+                    let group = CAAnimationGroup()
+                    group.animations = [move, fade]
+                    group.duration = period
+                    group.repeatCount = .infinity
+                    group.beginTime = now - (period - offset)
+                    dot.add(group, forKey: "flow")
+                }
+                layer.addSublayer(dot)
+                return dot
+            }
         }
     }
 }
 
 /// A cable's curve: it leaves the card and meets the plug level, like a cable lying on a desk.
-struct Bezier {
+struct Bezier: Equatable {
     let p0, c1, c2, p3: CGPoint
 
     init(_ start: CGPoint, _ end: CGPoint) {

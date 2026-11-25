@@ -173,15 +173,16 @@ What's in each port and what it can really do: how fast the link runs, how many 
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/cables-dark.jpg"><img src="docs/cables-light.jpg" width="100%" alt="The Cables page: a MacBook seen from above with a dock charging it at 41 of 98 watts and an SSD on the front port marked with a warning, and below, the dock linked at full USB4 speed with its cable's rating"></picture>
 </p>
 
-The page draws the Mac from above with each port where it really is, and a cable from each port to a card saying what's on the end. Power runs along the charging cable as dots. Pick a port to see everything about it:
+The page draws the Mac from above with each port where it really is, and a cable from each port to a card saying what's on the end. Power runs along the charging cable as dots. Pick a port and everything about it is right there, nothing folded away:
 
 - **A verdict first.** Plain sentences like "The cable limits charging to 60 W" or "Portable SSD T7 is running at USB 2 speed", with what to do about it.
 - **The chain.** This Mac's port, the cable and the device side by side, with the link that limits charging or data marked.
 - **Power.** The watts going in right now against the contract, every voltage the charger offers with the one in use checked, and the battery.
 - **Data.** The link speed next to what the port and the cable can do. Thunderbolt and USB4 show their lanes and what they tunnel.
-- **Displays and devices.** Each display with its link rate and lanes, including through a dock or an HDMI adapter, and every USB device behind the port with its speed.
+- **Displays and devices.** Each display with its link rate and lanes, including through a dock or an HDMI adapter, and the whole USB tree behind the port, hubs included, with each device's speed, IDs, USB version and power.
+- **The technical side.** The charger's raw offers and live volts and amps, the Thunderbolt link per lane, the cable chip's decoded fields and VDO words, the device's Power Delivery identity, pin use, plug counts and the liquid check.
 
-**Details**, in the page's header, unfolds the technical side everywhere: the charger's raw offers, the cable chip's decoded fields and VDO words, the device's Power Delivery identity, pin use, plug counts and the liquid check. **Copy report** puts it all on the clipboard as text.
+**Copy report** puts it all on the clipboard as text.
 
 When you plug something in, a card under the menu bar says what it is and the one thing holding it back, if anything. **Everything about it** opens its page. The page has a switch to turn the card off.
 

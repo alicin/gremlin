@@ -794,9 +794,6 @@ final class Cables: ObservableObject {
     @Published private(set) var snapshot = CablesSnapshot()
     @Published private(set) var connectedAt: [String: Date] = [:]
     @Published var selected: String?
-    @Published var showsDetails = UserDefaults.standard.bool(forKey: Cables.detailsKey) {
-        didSet { UserDefaults.standard.set(showsDetails, forKey: Self.detailsKey) }
-    }
     /// A Cables page is on screen, so the live numbers refresh every couple of seconds.
     var watching = false {
         didSet { if watching, !oldValue { refresh() } }
@@ -804,7 +801,6 @@ final class Cables: ObservableObject {
     var onConnect: ((CablePort) -> Void)?
     var onDisconnect: ((CablePort) -> Void)?
 
-    nonisolated static let detailsKey = "cablesShowDetails"
     private let read: @Sendable () -> CablesSnapshot
     private var notify: IONotificationPortRef?
     private var iterators: [io_iterator_t] = []
