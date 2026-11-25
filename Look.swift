@@ -57,6 +57,7 @@ enum Palette {
     static let pink = Color(hex: 0xFF5FA2)
     static let tangerine = Color(hex: 0xFF7A2F)
     static let ocean = Color(hex: 0x2563EB)
+    static let emerald = Color(hex: 0x1FAA59)
     static let slate = Color(hex: 0x5E7A8C)
 
     static let good = Color(hex: 0x34C759)
@@ -88,6 +89,7 @@ enum Ink {
     static let grape = Color.dynamic(light: NSColor(hex: 0x8A2FC4), dark: NSColor(hex: 0xD9A2FF))
     static let tangerine = Color.dynamic(light: NSColor(hex: 0xB4501A), dark: NSColor(hex: 0xFFA36E))
     static let ocean = Color.dynamic(light: NSColor(hex: 0x1D4FC4), dark: NSColor(hex: 0x8AB0FF))
+    static let emerald = Color.dynamic(light: NSColor(hex: 0x14803F), dark: NSColor(hex: 0x6BE39C))
 }
 
 enum Motion {

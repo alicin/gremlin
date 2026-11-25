@@ -25,6 +25,7 @@
   <a href="#ipad-as-a-display">iPad</a> ·
   <a href="#universal-control">Universal Control</a> ·
   <a href="#scrolling">Scrolling</a> ·
+  <a href="#cables">Cables</a> ·
   <a href="#links">Links</a> ·
   <a href="#drives">Drives</a> ·
   <a href="#vpn">VPN</a> ·
@@ -163,6 +164,34 @@ The Scrolling page has a card for each mouse and trackpad with a **Natural scrol
 - **What it flips.** Both directions of every scroll from a device set the other way from macOS, and apps are told the direction changed, as if macOS had done it. Scrolls from other devices, and from software, pass through untouched.
 - **What it costs.** Gremlin only taps scroll events while a device is set the other way, on a thread of its own so a busy Gremlin can't make scrolling lag. Flipping needs Accessibility permission.
 - **How it tells devices apart.** Each scroll event names the HID service that sent it, through a private CoreGraphics call (`CGEventCopyIOHIDEvent`). Gremlin looks that service up in IOKit and knows the device by its maker, model and name. If macOS ever drops the call, nothing gets flipped.
+
+## Cables
+
+What's in each port and what it can really do: how fast the link runs, how many watts the charger gives, what the cable is rated for, and which of them holds the rest back. It reads the same data as [WhatCable](https://github.com/darrylmorley/whatcable).
+
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/cables-dark.jpg"><img src="docs/cables-light.jpg" width="100%" alt="The Cables page: a MacBook seen from above with a dock charging it at 41 of 98 watts and an SSD on the front port marked with a warning, and below, the dock linked at full USB4 speed with its cable's rating"></picture>
+</p>
+
+The page draws the Mac from above with each port where it really is, and a cable from each port to a card saying what's on the end. Power runs along the charging cable as dots. Pick a port to see everything about it:
+
+- **A verdict first.** Plain sentences like "The cable limits charging to 60 W" or "Portable SSD T7 is running at USB 2 speed", with what to do about it.
+- **The chain.** This Mac's port, the cable and the device side by side, with the link that limits charging or data marked.
+- **Power.** The watts going in right now against the contract, every voltage the charger offers with the one in use checked, and the battery.
+- **Data.** The link speed next to what the port and the cable can do. Thunderbolt and USB4 show their lanes and what they tunnel.
+- **Displays and devices.** Each display with its link rate and lanes, including through a dock or an HDMI adapter, and every USB device behind the port with its speed.
+
+**Details**, in the page's header, unfolds the technical side everywhere: the charger's raw offers, the cable chip's decoded fields and VDO words, the device's Power Delivery identity, pin use, plug counts and the liquid check. **Copy report** puts it all on the clipboard as text.
+
+When you plug something in, a card under the menu bar says what it is and the one thing holding it back, if anything. **Everything about it** opens its page. The page has a switch to turn the card off.
+
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/cable-card-dark.jpg"><img src="docs/cable-card-light.jpg" width="432" alt="The card Gremlin shows on plug-in: a Samsung SSD on USB-C port 1, linked at 480 Mb/s, with a warning that the cable is probably USB 2 only"></picture>
+</p>
+
+- **How it reads them.** Apple silicon Macs publish each USB-C and MagSafe port in IOKit's IOPort plane: the charger's offers and the contract in use, the cable's e-marker, the device's Power Delivery identity, and every link it carries. Gremlin reads them a key at a time, as you, and the device tree says where each port sits. No helper, no admin password.
+- **When the cable stays quiet.** A Mac usually reads a cable's chip only over Thunderbolt or when charging above 3 A, so a plain cable often doesn't say what it is. Gremlin then goes by what the link actually does.
+- **What it can't do.** Intel Macs don't publish this. It doesn't show how much power the Mac gives a device it charges, and a charger's own name only shows for Apple's.
 
 ## Links
 

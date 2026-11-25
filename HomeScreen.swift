@@ -83,6 +83,7 @@ struct HomeScreen: View {
 
 private struct HomeGreeting: View {
     @EnvironmentObject private var model: MenuModel
+    @EnvironmentObject private var cables: Cables
     @StateObject private var spun = Box(false)
 
     private static let name: String = {
@@ -130,6 +131,9 @@ private struct HomeGreeting: View {
         }
         if let progress = model.notesProgress { parts.append(Self.clause(progress.title)) }
         if model.awakeStop > 0 { parts.append("the Mac is staying awake \(KeepAwakeInfo.caption(model))") }
+        if CablesScreen.stories(cables).contains(where: { $0.insights.contains { $0.tone == .warn } }) {
+            parts.append("a cable is holding something back")
+        }
         guard !parts.isEmpty else { return "Everything's running smoothly." }
         let sentence = ListFormatter.localizedString(byJoining: parts)
         return sentence.prefix(1).uppercased() + sentence.dropFirst() + "."

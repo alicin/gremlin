@@ -3,7 +3,7 @@ import SwiftUI
 // Everything Gremlin does, as the window's sidebar and the shelf list it. A new utility is a new case here,
 // plus its screen in the window and its card on the shelf.
 enum Module: String, CaseIterable, Identifiable {
-    case meetings, tools, keepAwake, displays, restart, fixes, ipad, universalControl, scrolling, links, drives, vpn, settings
+    case meetings, tools, keepAwake, displays, restart, fixes, ipad, universalControl, scrolling, cables, links, drives, vpn, settings
 
     enum Group: String, CaseIterable {
         case capture = "Capture"
@@ -25,6 +25,7 @@ enum Module: String, CaseIterable, Identifiable {
         case .ipad: "iPad"
         case .universalControl: "Universal Control"
         case .scrolling: "Scrolling"
+        case .cables: "Cables"
         case .links: "Links"
         case .drives: "Drives"
         case .vpn: "VPN"
@@ -43,6 +44,7 @@ enum Module: String, CaseIterable, Identifiable {
         case .ipad: "ipad.landscape"
         case .universalControl: "macbook.and.ipad"
         case .scrolling: "computermouse.fill"
+        case .cables: "cable.connector"
         case .links: "link"
         case .drives: "externaldrive.fill.badge.wifi"
         case .vpn: "lock.shield.fill"
@@ -61,6 +63,7 @@ enum Module: String, CaseIterable, Identifiable {
         case .ipad: Palette.teal
         case .universalControl: Palette.grape
         case .scrolling: Palette.tangerine
+        case .cables: Palette.emerald
         case .links: Palette.pink
         case .drives: Palette.lime
         case .vpn: Palette.ocean
@@ -79,6 +82,7 @@ enum Module: String, CaseIterable, Identifiable {
         case .ipad: Ink.teal
         case .universalControl: Ink.grape
         case .scrolling: Ink.tangerine
+        case .cables: Ink.emerald
         case .links: Ink.pink
         case .drives: Ink.lime
         case .vpn: Ink.ocean
@@ -99,7 +103,7 @@ enum Module: String, CaseIterable, Identifiable {
         switch self {
         case .meetings, .tools: .capture
         case .keepAwake, .displays, .restart, .fixes, .settings: .mac
-        case .ipad, .universalControl, .scrolling: .devices
+        case .ipad, .universalControl, .scrolling, .cables: .devices
         case .links, .drives, .vpn: .network
         }
     }
@@ -115,6 +119,7 @@ enum Module: String, CaseIterable, Identifiable {
         case .ipad: "Use the iPad as a display"
         case .universalControl: "Reset it when a device gives up"
         case .scrolling: "Pick the scroll direction for each mouse and trackpad"
+        case .cables: "What each cable, charger and port can do"
         case .links: "Send every link to the right browser"
         case .drives: "Mount SSH servers in Finder"
         case .vpn: "Tailscale and WireGuard, without their menu bar icons"

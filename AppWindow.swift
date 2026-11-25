@@ -147,6 +147,7 @@ struct WindowRoot: View {
         .environmentObject(model.displays)
         .environmentObject(model.scrolling)
         .environmentObject(model.vpn)
+        .environmentObject(model.cables)
     }
 }
 
@@ -200,6 +201,7 @@ private struct ScreenHost: View {
         case .ipad: IPadScreen()
         case .universalControl: UniversalControlScreen()
         case .scrolling: ScrollingScreen()
+        case .cables: CablesScreen()
         case .links: LinksScreen()
         case .drives: DrivesScreen()
         case .vpn: VPNScreen()
@@ -520,6 +522,7 @@ private struct SideBadge: View {
     @EnvironmentObject private var drives: Drives
     @EnvironmentObject private var scrolling: ScrollDirection
     @EnvironmentObject private var vpn: VPN
+    @EnvironmentObject private var cables: Cables
 
     var body: some View {
         switch module {
@@ -564,6 +567,12 @@ private struct SideBadge: View {
             if model.ipad?.state == .connected { Circle().fill(Palette.busy).frame(width: 6, height: 6) }
         case .scrolling:
             if scrolling.needsAccess { Circle().fill(Palette.warn).frame(width: 6, height: 6) }
+        case .cables:
+            if CablesScreen.stories(cables).contains(where: { $0.insights.contains { $0.tone == .warn } }) {
+                Circle().fill(Palette.warn).frame(width: 6, height: 6).help("A cable is holding something back")
+            } else if cables.chargingPort != nil {
+                Image(systemName: "bolt.fill").font(.system(size: 9.5, weight: .bold)).foregroundStyle(Ink.emerald)
+            }
         case .vpn:
             let on = vpn.others.filter { $0.state == .on }.count + (vpn.tailscaleOn ? 1 : 0)
             if on > 0 {

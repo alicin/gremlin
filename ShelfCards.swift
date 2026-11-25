@@ -36,6 +36,7 @@ private struct ShelfModuleCard: View {
     @ObservedObject var displays: Displays
     @ObservedObject var scrolling: ScrollDirection
     @ObservedObject var vpn: VPN
+    @ObservedObject var cables: Cables
     @ObservedObject var recordings: Recordings
     let module: Module
     let index: Int
@@ -48,6 +49,7 @@ private struct ShelfModuleCard: View {
         displays = s.model.displays
         scrolling = s.model.scrolling
         vpn = s.model.vpn
+        cables = s.model.cables
         recordings = s.recordings
         self.module = module
         self.index = index
@@ -93,6 +95,7 @@ private struct ShelfModuleCard: View {
             return "\(rules) \(rules == 1 ? "rule" : "rules")" + (links.config.removeTracking ? " · tracking removed" : "")
         case .drives: return "In ~/Drives, over SSH"
         case .scrolling: return scrolling.macNatural ? "macOS scrolls naturally" : "macOS scrolls the standard way"
+        case .cables: return PortStory.batteryLine(cables.charging) ?? "\(cables.ports.count) ports"
         case .vpn:
             let wireguard = vpn.others.count
             return wireguard == 0 ? "Hide their icons in Menu Bar settings" : "\(wireguard) \(wireguard == 1 ? "tunnel" : "tunnels") in System Settings"
@@ -118,6 +121,7 @@ private struct ShelfModuleBody: View {
         case .links: ShelfLinksBody(links: s.model.links)
         case .drives: ShelfDrivesBody(s: s, drives: s.model.drives)
         case .scrolling: ShelfScrollingBody(scrolling: s.model.scrolling)
+        case .cables: ShelfCablesBody(cables: s.model.cables)
         case .vpn: ShelfVPNBody(vpn: s.model.vpn)
         case .settings: ShelfSettingsBody(s: s, model: s.model)
         }
@@ -141,6 +145,7 @@ private struct ShelfPeek: View {
         case .links: ["Rules by site and by app", "Strips tracking on the way", "Zoom and Figma links open in their apps"]
         case .drives: ["Any server you can ssh into", "Shows up in Finder like a disk", "Nothing to install on either end"]
         case .scrolling: ["A direction for each mouse and trackpad", "Natural trackpad, standard mouse", "Lights up the device you're scrolling"]
+        case .cables: ["Charging speed, and what limits it", "Each cable's chip: watts, speed, length", "Every link, display and device"]
         case .vpn: ["Tailscale on and off, and its exit node", "Every WireGuard tunnel", "Copy any device's tailnet address"]
         case .settings: ["Open at login", "Transcript language", "Every shortcut in one place"]
         }
@@ -1256,6 +1261,40 @@ private struct ShelfScrollingBody: View {
     }
 }
 
+// MARK: - Cables card
+
+private struct ShelfCablesBody: View {
+    @ObservedObject var cables: Cables
+
+    var body: some View {
+        let stories = CablesScreen.stories(cables)
+        VStack(spacing: 10) {
+            ForEach(stories.prefix(4), id: \.port.id) { story in
+                HStack(spacing: 9) {
+                    Image(systemName: story.symbol)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(story.connected ? AnyShapeStyle(ShelfMetrics.deep(Palette.emerald)) : AnyShapeStyle(.tertiary))
+                        .frame(width: 30, height: 30)
+                        .background(ShelfMetrics.paperTint, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(story.connected ? story.name : "\(story.port.shortTitle) · empty")
+                            .font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                            .foregroundStyle(story.connected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                        Text(story.connected ? story.lines.first ?? story.role : PortStory.capabilities(story.port))
+                            .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 2)
+                    if story.insights.contains(where: { $0.tone == .warn }) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Palette.warn)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.top, 13)
+    }
+}
+
 // MARK: - VPN card
 
 private struct ShelfVPNBody: View {
@@ -1982,6 +2021,7 @@ struct ShelfModulePage: View {
             case .links: ShelfLinksPage(s: s, links: s.model.links)
             case .drives: ShelfDrivesPage(s: s, drives: s.model.drives)
             case .scrolling: ShelfScrollingPage(s: s, scrolling: s.model.scrolling)
+            case .cables: ShelfCablesPage(s: s, cables: s.model.cables)
             case .vpn: ShelfVPNPage(s: s, vpn: s.model.vpn)
             case .settings, .meetings: ShelfSettingsPage(s: s, model: s.model)
             }
@@ -2686,6 +2726,44 @@ private struct ShelfScrollingPage: View {
                         ToggleSwitch(isOn: natural, tint: Palette.tangerine, small: true, label: "Natural scrolling on \(device.title)") {
                             scrolling.setNatural(!natural, for: device)
                         }
+                    }
+                }
+                .padding(13)
+            }
+        }
+    }
+}
+
+private struct ShelfCablesPage: View {
+    @ObservedObject var s: ShelfState
+    @ObservedObject var cables: Cables
+
+    var body: some View {
+        let stories = CablesScreen.stories(cables)
+        ForEach(Array((stories.filter(\.connected) + stories.filter { !$0.connected }).enumerated()), id: \.element.port.id) { index, story in
+            let warn = story.insights.first { $0.tone == .warn }
+            ShelfSub(s, story.port.id, story.connected ? story.name : story.port.title,
+                     status: story.connected ? story.port.title : "Empty", symbol: story.symbol,
+                     tint: story.connected ? Palette.emerald : Palette.slate, index: index, footer: story.port.location?.title) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if story.connected {
+                        ForEach(story.lines, id: \.self) { line in
+                            Text(line).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                        }
+                        if let insight = warn ?? story.insights.first {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: insight.symbol).font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(insight.tone == .warn ? Palette.warn : insight.tone == .good ? Palette.good : Palette.sky)
+                                Text(insight.title).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(.top, 2)
+                        }
+                    } else {
+                        ShelfNote(text: story.port.magSafe ? "Nothing plugged in. MagSafe charges the Mac." : "Nothing plugged in. It can do " + PortStory.capabilities(story.port).lowercased() + ".", size: 12)
+                    }
+                    Spacer(minLength: 0)
+                    if story.charges, let battery = PortStory.batteryLine(story.charging) {
+                        ShelfNote(text: battery, size: 11.5)
                     }
                 }
                 .padding(13)

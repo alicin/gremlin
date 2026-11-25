@@ -38,7 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let displays = Displays()
     private let scrolling = ScrollDirection()
     private let vpn = VPN()
-    private lazy var model = MenuModel(links: links, drives: drives, displays: displays, scrolling: scrolling, vpn: vpn)
+    private let cables = Cables()
+    private lazy var cableToast = CableToast(cables: cables)
+    private var cablesQuietUntil = Date.distantPast
+    private lazy var model = MenuModel(links: links, drives: drives, displays: displays, scrolling: scrolling, vpn: vpn, cables: cables)
     private let recordings = Recordings()
     private lazy var window = GremlinWindow(model: model, recordings: recordings)
     private lazy var shelf = Shelf(model: model, recordings: recordings)
@@ -79,6 +82,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
+        // Docks and displays can reconnect as the Mac wakes, which isn't news.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cablesQuietUntil = Date().addingTimeInterval(20) }
+        }
+        cables.onConnect = { [weak self] port in self?.cableConnected(port) }
+        cables.onDisconnect = { [weak self] port in self?.cableToast.hide(port.id) }
+        cableToast.open = { [weak self] id in
+            self?.cables.selected = id
+            self?.window.show(.cables, page: true)
+        }
         sidecar.onChange = { [weak self] in self?.refresh() }
         meetings.onChange = { [weak self] in self?.refresh() }
         meetingSync.onChange = { [weak self] in self?.refresh() }
@@ -102,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         displays.start()
         scrolling.start()
         vpn.start()
+        cables.start()
         for item in switches where defaults.bool(forKey: item.key) {
             item.feature.start()
         }
@@ -114,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.displays.refresh()
             self?.scrolling.refresh()
             self?.vpn.refresh()
+            self?.cables.refresh()
             self?.recordings.refresh()
             self?.meetingSync.syncIfStale()
             self?.model.awakeOthers = KeepAwake.others()
@@ -189,6 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keepAwake.stop()
         scrolling.stop()
         vpn.stop()
+        cables.stop()
     }
 
     // While recording, a click on the record button stops it, and a right-click or Control-click opens the window.
@@ -338,6 +354,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = recording == nil ? .imageOnly : .imageLeading
         button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         button.title = recording.map { " " + Meetings.elapsed(since: $0.started) } ?? ""
+    }
+
+    /// The card waits a moment so the link and the charger have settled before it says what they are.
+    private func cableConnected(_ port: CablePort) {
+        guard CableToast.enabled, Date() > cablesQuietUntil else { return }
+        if window.isVisible, NSApp.isActive, window.navigator.selection == .cables { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self, self.cables.port(port.id)?.connected == true else { return }
+            if self.window.isVisible, NSApp.isActive, self.window.navigator.selection == .cables { return }
+            self.cableToast.show(port.id)
+        }
     }
 
     private func perform(_ action: MenuModel.Action) {

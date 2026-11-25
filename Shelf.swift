@@ -292,6 +292,13 @@ final class ShelfState: ObservableObject {
             let flipped = scrolling.devices.filter(scrolling.flips)
             if flipped.isEmpty { return "Same as macOS" }
             return flipped.count == 1 ? "Flipping \(flipped[0].title)" : "Flipping \(flipped.count) devices"
+        case .cables:
+            let cables = model.cables
+            if let port = cables.chargingPort, let contract = port.contract?.winning {
+                return "Charging · \(cables.charging.inputMilliwatts.map(Units.watts) ?? Units.watts(contract.milliwatts))"
+            }
+            let n = cables.connectedPorts.count
+            return n == 0 ? "Nothing plugged in" : n == 1 ? "1 plugged in" : "\(n) plugged in"
         case .vpn:
             let vpn = model.vpn
             let others = vpn.others.filter { $0.state == .on }
@@ -1209,9 +1216,30 @@ private struct ShelfHintBar: View {
                 } else {
                     Circle().fill(module.tint).frame(width: 6, height: 6)
                 }
-                Text(s.status(module)).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                ShelfLiveStatus(s: s, module: module)
             }
         }
+    }
+}
+
+/// A module's status line, redrawn when the module's own model changes rather than only when the shelf does.
+private struct ShelfLiveStatus: View {
+    @ObservedObject var s: ShelfState
+    @ObservedObject var scrolling: ScrollDirection
+    @ObservedObject var vpn: VPN
+    @ObservedObject var cables: Cables
+    let module: Module
+
+    init(s: ShelfState, module: Module) {
+        self.s = s
+        scrolling = s.model.scrolling
+        vpn = s.model.vpn
+        cables = s.model.cables
+        self.module = module
+    }
+
+    var body: some View {
+        Text(s.status(module)).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
     }
 }
 
